@@ -1,0 +1,10 @@
+(library
+ (name remus)
+ (public_name remus)
+ (libraries unix)
+ (foreign_stubs
+  (language c)
+  (include_dirs ../kernel)
+  (names linux)
+  (flags (:standard -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE)))
+ (c_library_flags -lcapstone))

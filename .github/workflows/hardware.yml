@@ -1,0 +1,49 @@
+name: Native VMX tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Run on the disposable VMX machine
+        required: true
+        type: boolean
+        default: false
+      cycles:
+        description: Activation and teardown cycles
+        required: true
+        type: choice
+        options: ["3", "10", "100"]
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-vmx-machine
+  cancel-in-progress: false
+
+jobs:
+  native:
+    if: ${{ inputs.confirm && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: [self-hosted, linux, x64, remus-vmx]
+    environment: native-vmx
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build the controller and module
+        shell: bash
+        run: |
+          dune build --profile release @all @install
+          make -C kernel W=1 -j2
+      - name: Verify the source majority
+        run: _build/install/default/bin/remus source-stats --check
+      - name: Exercise native VMX on every online CPU
+        env:
+          VMX_CYCLES: ${{ inputs.cycles }}
+        run: |
+          sudo -n insmod kernel/remus.ko
+          trap 'sudo -n rmmod remus' EXIT
+          sudo -n _build/install/default/bin/remus native test \
+            --cycles "$VMX_CYCLES" --min-cpus 2

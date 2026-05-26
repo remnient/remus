@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="653pt" height="124pt" viewBox="0.00 0.00 653.00 124.00" role="img" aria-labelledby="shadow-title shadow-desc">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 102.15)">
+<title>shadow</title>
+<polygon fill="white" stroke="none" points="-21.6,21.6 -21.6,-102.15 631.7,-102.15 631.7,21.6 -21.6,21.6" />
+
+<g id="node1" class="node">
+<title>readable</title>
+<polygon fill="none" stroke="#333333" stroke-width="0.8" points="176.55,-80.55 0,-80.55 0,-7.2 176.55,-7.2 176.55,-80.55" />
+<text xml:space="preserve" text-anchor="middle" x="88.27" y="-55.5" font-family="Liberation Serif" font-size="15.00" fill="#202020">Readable view</text>
+<text xml:space="preserve" text-anchor="middle" x="88.27" y="-38.25" font-family="Liberation Serif" font-size="15.00" fill="#202020">original physical page</text>
+<text xml:space="preserve" text-anchor="middle" x="88.27" y="-21" font-family="Liberation Serif" font-size="15.00" fill="#202020">read / write · no execute</text>
+</g>
+
+<g id="node2" class="node">
+<title>executable</title>
+<polygon fill="none" stroke="#333333" stroke-width="0.8" points="610.1,-80.55 419.3,-80.55 419.3,-7.2 610.1,-7.2 610.1,-80.55" />
+<text xml:space="preserve" text-anchor="middle" x="514.7" y="-55.5" font-family="Liberation Serif" font-size="15.00" fill="#202020">Executable view</text>
+<text xml:space="preserve" text-anchor="middle" x="514.7" y="-38.25" font-family="Liberation Serif" font-size="15.00" fill="#202020">replacement physical page</text>
+<text xml:space="preserve" text-anchor="middle" x="514.7" y="-21" font-family="Liberation Serif" font-size="15.00" fill="#202020">execute only</text>
+</g>
+
+<g id="edge1" class="edge">
+<title>readable-&gt;executable</title>
+<path fill="none" stroke="#285b62" stroke-width="0.8" d="M176.7,-43.88C244.97,-43.88 339.97,-43.88 411.7,-43.88" />
+<polygon fill="#285b62" stroke="#285b62" stroke-width="0.8" points="411.3,-46.15 417.8,-43.88 411.3,-41.6 411.3,-46.15" />
+<text xml:space="preserve" text-anchor="middle" x="297.93" y="-60.98" font-family="Liberation Serif" font-size="12.00" fill="#285b62">instruction-fetch fault</text>
+<text xml:space="preserve" text-anchor="middle" x="297.93" y="-46.73" font-family="Liberation Serif" font-size="12.00" fill="#285b62">matching address space</text>
+</g>
+
+<g id="edge2" class="edge">
+<title>executable-&gt;readable</title>
+<path fill="none" stroke="#555555" stroke-width="0.8" d="M419.27,-16.17C400.24,-11.68 380.26,-7.73 361.3,-5.38 305.4,1.58 290.41,1.9 234.55,-5.38 218.02,-7.53 200.7,-11 184.01,-15.01" />
+<polygon fill="#555555" stroke="#555555" stroke-width="0.8" points="183.84,-12.71 178.07,-16.47 184.92,-17.13 183.84,-12.71" />
+<text xml:space="preserve" text-anchor="middle" x="297.93" y="-22.48" font-family="Liberation Serif" font-size="12.00" fill="#444444">data-access fault</text>
+<text xml:space="preserve" text-anchor="middle" x="297.93" y="-8.23" font-family="Liberation Serif" font-size="12.00" fill="#444444">or intercepted CR3 change</text>
+</g>
+</g>
+<title id="shadow-title">Remus shadow</title><desc id="shadow-desc">For a matching address space an instruction-fetch fault selects an execute-only replacement page. A data-access fault or intercepted CR3 change restores the original readable page.</desc></svg>

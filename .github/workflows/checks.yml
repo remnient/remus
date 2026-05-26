@@ -1,0 +1,54 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: OCaml ${{ matrix.ocaml }} and native driver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ocaml: ["5.3", "5.4"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate workflows
+        if: matrix.ocaml == '5.3'
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcapstone-dev qemu-system-x86 busybox-static linux-headers-generic linux-image-generic
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ matrix.ocaml }}
+      - run: opam install . --deps-only --with-test --yes
+      - name: Build OCaml
+        run: opam exec -- dune build --profile release @all @install
+      - name: Portable tests
+        run: opam exec -- dune runtest --profile release
+      - name: Require an OCaml source majority
+        run: _build/install/default/bin/remus source-stats --check
+      - name: Build the guest driver
+        shell: bash
+        run: |
+          guest_kernel=$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' -printf '%f\n' | sort -V | tail -n 1)
+          guest_kernel=${guest_kernel#linux-headers-}
+          test -n "$guest_kernel"
+          test -f "/boot/vmlinuz-$guest_kernel"
+          make -C kernel W=1 -j2 KDIR="/usr/src/linux-headers-$guest_kernel"
+          sudo install -m 644 "/boot/vmlinuz-$guest_kernel" "$RUNNER_TEMP/remus-vmlinuz"
+      - name: Linux driver integration
+        run: |
+          opam exec -- dune exec --profile release test/smoke.exe -- \
+            "$RUNNER_TEMP/remus-vmlinuz" kernel/remus.ko \
+            _build/install/default/bin/remus

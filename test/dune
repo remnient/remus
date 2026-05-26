@@ -1,0 +1,29 @@
+(test
+ (name core)
+ (modules core)
+ (libraries remus))
+
+(test
+ (name policy)
+ (modules policy)
+ (libraries remus))
+
+(test
+ (name execution)
+ (modules execution)
+ (libraries remus unix))
+
+(test
+ (name native)
+ (modules native)
+ (libraries remus unix))
+
+(executable
+ (name smoke)
+ (modules smoke)
+ (libraries remus unix))
+
+(test
+ (name lifecycle)
+ (modules lifecycle)
+ (libraries remus unix))

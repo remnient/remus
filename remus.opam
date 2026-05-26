@@ -1,0 +1,17 @@
+opam-version: "2.0"
+synopsis: "OCaml control logic for a native Linux VT-x hypervisor"
+maintainer: "remus contributors"
+authors: ["remus contributors"]
+depends: [
+  "ocaml" {>= "5.3"}
+  "dune" {>= "3.0"}
+]
+depexts: [
+  ["libcapstone-dev"] {os-family = "debian"}
+  ["capstone"] {os-family = "arch"}
+  ["capstone-devel"] {os-distribution = "fedora"}
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]

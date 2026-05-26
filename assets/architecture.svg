@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="911pt" height="190pt" viewBox="0.00 0.00 911.00 190.00" role="img" aria-labelledby="architecture-title architecture-desc">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 168.6)">
+<title>architecture</title>
+<polygon fill="white" stroke="none" points="-21.6,21.6 -21.6,-168.6 889.27,-168.6 889.27,21.6 -21.6,21.6" />
+<g id="clust1" class="cluster">
+<title>cluster_native</title>
+<polygon fill="white" stroke="#999999" stroke-width="0.7" points="252.98,-8 252.98,-139 673.94,-139 673.94,-8 252.98,-8" />
+<text xml:space="preserve" text-anchor="middle" x="463.46" y="-120.75" font-family="Liberation Serif" font-size="15.00">Native Linux backend</text>
+</g>
+
+<g id="node1" class="node">
+<title>controller</title>
+<polygon fill="none" stroke="#333333" stroke-width="0.8" points="200.73,-88.61 0,-88.61 0,-35.39 200.73,-35.39 200.73,-88.61" />
+<text xml:space="preserve" text-anchor="middle" x="100.37" y="-65" font-family="Liberation Serif" font-size="15.00" fill="#202020">OCaml controller</text>
+<text xml:space="preserve" text-anchor="middle" x="100.37" y="-47.75" font-family="Liberation Serif" font-size="15.00" fill="#202020">VMX plans · shadow images</text>
+</g>
+
+<g id="node2" class="node">
+<title>device</title>
+<polygon fill="none" stroke="#333333" stroke-width="0.8" points="380.96,-88.61 270.98,-88.61 270.98,-35.39 380.96,-35.39 380.96,-88.61" />
+<text xml:space="preserve" text-anchor="middle" x="325.97" y="-65" font-family="Liberation Serif" font-size="15.00" fill="#202020">/dev/remus</text>
+<text xml:space="preserve" text-anchor="middle" x="325.97" y="-47.75" font-family="Liberation Serif" font-size="15.00" fill="#202020">ioctl interface</text>
+</g>
+
+<g id="edge2" class="edge">
+<title>controller-&gt;device</title>
+<path fill="none" stroke="#555555" stroke-width="0.8" d="M208.68,-62C227.37,-62 246.24,-62 263.17,-62" />
+<polygon fill="#555555" stroke="#555555" stroke-width="0.8" points="208.78,-59.73 202.28,-62 208.78,-64.28 208.78,-59.73" />
+<polygon fill="#555555" stroke="#555555" stroke-width="0.8" points="263.1,-64.28 269.6,-62 263.1,-59.73 263.1,-64.28" />
+<text xml:space="preserve" text-anchor="middle" x="234.86" y="-64.85" font-family="Liberation Serif" font-size="12.00" fill="#444444">ioctl</text>
+</g>
+
+<g id="node3" class="node">
+<title>vmx</title>
+<polygon fill="none" stroke="#333333" stroke-width="0.8" points="655.94,-96.23 476.96,-96.23 476.96,-25.77 655.94,-25.77 655.94,-96.23" />
+<text xml:space="preserve" text-anchor="middle" x="566.45" y="-72.62" font-family="Liberation Serif" font-size="15.00" fill="#202020">Per-CPU VMX state</text>
+<text xml:space="preserve" text-anchor="middle" x="566.45" y="-55.38" font-family="Liberation Serif" font-size="15.00" fill="#202020">VMCS · EPT · host stack</text>
+<text xml:space="preserve" text-anchor="middle" x="566.45" y="-38.12" font-family="Liberation Serif" font-size="15.00" fill="#202020">VM-exit handlers</text>
+</g>
+
+<g id="edge1" class="edge">
+<title>device-&gt;vmx</title>
+<path fill="none" stroke="#555555" stroke-width="0.8" d="M381.08,-61.77C407.18,-61.66 439.28,-61.53 469.35,-61.4" />
+<polygon fill="#555555" stroke="#555555" stroke-width="0.8" points="469.24,-63.68 475.73,-61.38 469.22,-59.13 469.24,-63.68" />
+<text xml:space="preserve" text-anchor="middle" x="428.96" y="-78.75" font-family="Liberation Serif" font-size="12.00" fill="#444444">configure</text>
+<text xml:space="preserve" text-anchor="middle" x="428.96" y="-64.5" font-family="Liberation Serif" font-size="12.00" fill="#444444">start / stop</text>
+</g>
+
+<g id="node4" class="node">
+<title>linux</title>
+<polygon fill="none" stroke="#333333" stroke-width="0.8" points="867.67,-87.61 752.44,-87.61 752.44,-34.39 867.67,-34.39 867.67,-87.61" />
+<text xml:space="preserve" text-anchor="middle" x="810.06" y="-64" font-family="Liberation Serif" font-size="15.00" fill="#202020">Linux host</text>
+<text xml:space="preserve" text-anchor="middle" x="810.06" y="-46.75" font-family="Liberation Serif" font-size="15.00" fill="#202020">VMX non-root</text>
+</g>
+
+<g id="edge3" class="edge">
+<title>vmx-&gt;linux</title>
+<path fill="none" stroke="#285b62" stroke-width="0.8" d="M656.04,-61C685.46,-61 717.64,-61 744.85,-61" />
+<polygon fill="#285b62" stroke="#285b62" stroke-width="0.8" points="744.68,-63.28 751.18,-61 744.68,-58.73 744.68,-63.28" />
+<text xml:space="preserve" text-anchor="middle" x="705.19" y="-63.85" font-family="Liberation Serif" font-size="12.00" fill="#285b62">VM entry</text>
+</g>
+
+<g id="edge4" class="edge">
+<title>linux-&gt;vmx</title>
+<path fill="none" stroke="#555555" stroke-width="0.8" d="M752.24,-42.47C744.32,-40.52 736.23,-38.85 728.44,-37.75 707.43,-34.78 684.88,-35.56 663.51,-38.14" />
+<polygon fill="#555555" stroke="#555555" stroke-width="0.8" points="663.36,-35.86 657.21,-38.96 663.95,-40.37 663.36,-35.86" />
+<text xml:space="preserve" text-anchor="middle" x="705.19" y="-40.6" font-family="Liberation Serif" font-size="12.00" fill="#444444">VM exit</text>
+</g>
+</g>
+<title id="architecture-title">Remus architecture</title><desc id="architecture-desc">The OCaml controller communicates with the native Linux module through ioctls. Per-CPU VMX state handles entry into Linux and exits from Linux without entering the OCaml runtime.</desc></svg>

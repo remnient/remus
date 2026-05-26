@@ -1,0 +1,11 @@
+_build/
+_opam/
+*.install
+*.img
+kernel/*.o
+kernel/*.ko
+kernel/*.mod
+kernel/*.mod.c
+kernel/.*.cmd
+kernel/Module.symvers
+kernel/modules.order
