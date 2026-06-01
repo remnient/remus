@@ -1,4 +1,9 @@
 (test
+ (name cli)
+ (modules cli)
+ (libraries remus))
+
+(test
  (name core)
  (modules core)
  (libraries remus))

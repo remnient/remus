@@ -20,7 +20,41 @@ let read_payload path =
       if in_channel_length input <> 4096 then invalid_arg "native payload file must contain 4096 bytes";
       Bytes.of_string (really_input_string input 4096))
 
+let usage = "native commands: probe | plan | start | stop | status | selftest | test [--cycles N] [--min-cpus N] | read-page PID ADDRESS FILE | shadow PID ADDRESS FILE | unshadow ID | hook PID TARGET REPLACEMENT TRAMPOLINE | unhook TARGET_ID TRAMPOLINE_ID"
+
+let validate arguments =
+  let integer name maximum text =
+    let value = int_of_string text in
+    if value < 0 || value > maximum then invalid_arg ("invalid " ^ name) in
+  let pid = integer "process id" 0x7fff_ffff in
+  let id = integer "shadow id" (Protocol.max_shadows - 1) in
+  let address text =
+    if not (Bits.canonical (Int64.of_string text)) then invalid_arg "noncanonical address" in
+  match arguments with
+  | ["probe"] | ["plan"] | ["start"] | ["stop"] | ["status"]
+  | ["selftest"] | ["selftest-no-vmx"] -> ()
+  | "test" :: options ->
+      let rec parse = function
+        | [] -> ()
+        | (("--cycles" | "--min-cpus") as flag) :: value :: rest ->
+            let maximum = if flag = "--cycles" then 1000 else Protocol.max_cpus in
+            integer flag maximum value;
+            if int_of_string value = 0 then invalid_arg (flag ^ " must be positive");
+            parse rest
+        | _ -> invalid_arg usage in
+      parse options
+  | ["read-page"; process; target; _] | ["shadow"; process; target; _] -> pid process; address target
+  | ["unshadow"; value] -> id value
+  | ["hook"; process; target; replacement; trampoline] ->
+      pid process; List.iter address [target; replacement; trampoline]
+  | ["unhook"; target; trampoline] -> id target; id trampoline
+  | _ -> invalid_arg usage
+
 let run arguments =
+  match arguments with
+  | [] | ["help"] | ["--help"] | ["-h"] -> print_endline usage
+  | _ ->
+  validate arguments;
   Native.with_device (fun device ->
       match arguments with
       | "test" :: options ->
@@ -74,4 +108,4 @@ let run arguments =
             hook.target_id hook.trampoline_id hook.trampoline_address
       | ["unhook"; target; trampoline] ->
           Native.unhook device { target_id = int_of_string target; trampoline_id = int_of_string trampoline; trampoline_address = 0L }
-      | _ -> invalid_arg "native commands: probe | plan | start | stop | status | selftest | test [--cycles N] [--min-cpus N] | read-page PID ADDRESS FILE | shadow PID ADDRESS FILE | unshadow ID | hook PID TARGET REPLACEMENT TRAMPOLINE | unhook TARGET_ID TRAMPOLINE_ID")
+      | _ -> invalid_arg usage)
