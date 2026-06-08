@@ -1,4 +1,9 @@
 (test
+ (name protocol)
+ (modules protocol)
+ (libraries remus))
+
+(test
  (name cli)
  (modules cli)
  (libraries remus))

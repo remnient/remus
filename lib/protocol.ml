@@ -66,6 +66,13 @@ let header bytes size =
   if count > max_cpus then failwith "native cpu count exceeds the protocol limit";
   count
 
+let check_cpus identify cpus =
+  let seen = Hashtbl.create (List.length cpus) in
+  List.iter (fun cpu ->
+      let id = identify cpu in
+      if Hashtbl.mem seen id then failwith "duplicate cpu identifier in native response";
+      Hashtbl.add seen id ()) cpus
+
 let decode_probe bytes : probe =
   let count = header bytes probe_size in
   let cpus = List.init count (fun index ->
@@ -77,6 +84,7 @@ let decode_probe bytes : probe =
         exit = field 6; entry = field 7; cr0_fixed0 = field 8; cr0_fixed1 = field 9;
         cr4_fixed0 = field 10; cr4_fixed1 = field 11;
         cr0 = field 12; cr4 = field 13; cr3 = field 14 }) in
+  check_cpus (fun (cpu : capability) -> cpu.cpu) cpus;
   { active = uint32 bytes 8 <> 0; cpus }
 
 let encode_start (controls : control list) =
@@ -104,6 +112,7 @@ let decode_status bytes : status =
       { cpu = uint32 bytes offset; error = Int32.to_int (Bytes.get_int32_le bytes (offset + 4));
         active = field 0 <> 0L; exits = field 1; cpuid = field 2; msr = field 3;
         cr3 = field 4; ept = field 5; vmcall = field 6; failures = field 7; instruction_error = field 8; mtf = field 9 }) in
+  check_cpus (fun (cpu : cpu_status) -> cpu.cpu) cpus;
   { active = uint32 bytes 8 <> 0; shadows = uint32 bytes 12; cpus }
 
 let encode_shadow ~pid ~address payload =
