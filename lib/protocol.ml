@@ -94,7 +94,8 @@ let encode_start (controls : control list) =
   Bytes.set_int32_le bytes 0 (Int32.of_int version);
   Bytes.set_int32_le bytes 4 (Int32.of_int (List.length controls));
   List.iteri (fun index (control : control) ->
-      if control.cpu < 0 || Hashtbl.mem seen control.cpu then invalid_arg "invalid or duplicate cpu id";
+      if control.cpu < 0 || Int64.of_int control.cpu > 0xffff_ffffL || Hashtbl.mem seen control.cpu then
+        invalid_arg "invalid or duplicate cpu id";
       Hashtbl.add seen control.cpu ();
       let offset = 16 + index * 32 in
       Bytes.set_int32_le bytes offset (Int32.of_int control.cpu);
