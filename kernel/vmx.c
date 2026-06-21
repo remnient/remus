@@ -63,6 +63,9 @@ static int validate(struct remus_cpu *cpu) {
   if (!valid_control(control->pin, cap->pin) || !valid_control(control->primary, cap->primary)
       || !valid_control(control->secondary, cap->secondary) || !valid_control(control->exit, cap->exit)
       || !valid_control(control->entry, cap->entry)) return -EINVAL;
+  if ((control->pin & ~0x16U) || (control->primary & ~0x9c01e172U)
+      || (control->secondary & ~0x0010102aU) || (control->exit & ~0x003f6fffU)
+      || (control->entry & ~0x0000d3ffU)) return -EOPNOTSUPP;
   if (control->pin & (PIN_BASED_EXT_INTR_MASK | PIN_BASED_NMI_EXITING)) return -EOPNOTSUPP;
   if ((control->primary & (CPU_BASED_USE_MSR_BITMAPS | CPU_BASED_ACTIVATE_SECONDARY_CONTROLS | CPU_BASED_CR3_LOAD_EXITING))
       != (CPU_BASED_USE_MSR_BITMAPS | CPU_BASED_ACTIVATE_SECONDARY_CONTROLS | CPU_BASED_CR3_LOAD_EXITING)) return -EINVAL;

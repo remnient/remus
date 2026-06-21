@@ -38,6 +38,14 @@ let build_cpu (capability : Protocol.capability) =
         entry = adjust capability.entry 0x0000_c204L;
       } in
       let reasons = ref [] in
+      List.iter (fun (name, value, allowed) ->
+          if Int64.logand value (Int64.lognot allowed) <> 0L then
+            reasons := (name ^ " requires unconfigured execution state") :: !reasons)
+        ["pin controls", control.pin, 0x16L;
+         "primary controls", control.primary, 0x9c01_e172L;
+         "secondary controls", control.secondary, 0x0010_102aL;
+         "exit controls", control.exit, 0x003f_6fffL;
+         "entry controls", control.entry, 0x0000_d3ffL];
       let require mask value reason =
         if Int64.logand value mask <> mask then reasons := reason :: !reasons in
       require 0x9000_8000L control.primary "primary controls cannot enable msr bitmaps, cr3-load exits and secondary controls";

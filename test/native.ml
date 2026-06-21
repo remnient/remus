@@ -48,6 +48,11 @@ let test_control_plan () =
   check (Result.is_error (Plan.build_cpu { supported with cr4 = 0x2620L })) "existing vmx owner rejected";
   check (Result.is_error (Plan.build_cpu { supported with ept_vpid = 0L })) "missing ept features rejected";
   check (Result.is_error (Plan.build_cpu { supported with secondary = 0L })) "unavailable secondary controls rejected";
+  List.iter (fun capability -> check (Result.is_error (Plan.build_cpu capability)) "unconfigured vmcs state accepted")
+    [{ supported with pin = Int64.logor supported.pin 0x80L };
+     { supported with secondary = Int64.logor supported.secondary 1L };
+     { supported with primary = Int64.logor supported.primary 8L };
+     { supported with entry = Int64.logor supported.entry 0x2000L }];
   check (Result.is_error (Plan.build_cpu { supported with cr4 = Int64.logor supported.cr4 (Bits.bit 23) }))
     "unsupported cet state rejected";
   check (try ignore (Protocol.encode_start [control; control]); false with Invalid_argument _ -> true)
