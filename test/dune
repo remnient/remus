@@ -1,4 +1,12 @@
 (test
+ (name registers)
+ (modules registers)
+ (libraries remus)
+ (foreign_stubs
+  (language c)
+  (names instruction)))
+
+(test
  (name protocol)
  (modules protocol)
  (libraries remus))

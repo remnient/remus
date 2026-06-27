@@ -173,7 +173,7 @@ bool remus_ept_violation(struct remus_cpu *cpu, u64 address, u64 qualification) 
     if (!cpu->shadow_entries[i] || address < shadow->address || address - shadow->address >= PAGE_SIZE) continue;
     entry = cpu->shadow_originals[i];
     if ((qualification & BIT_ULL(2)) && !(qualification & BIT_ULL(5))) {
-      u64 cr3 = remus_vmread(GUEST_CR3) & PAGE_MASK;
+      u64 cr3 = remus_vmread(GUEST_CR3) & GENMASK_ULL(51, 12);
       bool target = !shadow->process_cr3 || cr3 == shadow->process_cr3;
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
       if ((cpu->capability.flags & 4) && shadow->process_cr3 && cr3 == shadow->process_cr3 + PAGE_SIZE) target = true;

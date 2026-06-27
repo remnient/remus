@@ -1,0 +1,16 @@
+external valid_cr3 : int64 -> int64 -> int -> bool -> bool = "remus_test_cr3"
+
+let check condition message = if not condition then failwith message
+
+let () =
+  for width = 32 to 52 do
+    let last = Int64.pred (Int64.shift_left 1L width) in
+    check (valid_cr3 last 0L width false) "valid physical address rejected";
+    check (not (valid_cr3 (Int64.succ last) 0L width false)) "reserved physical bit accepted";
+    check (not (valid_cr3 Int64.min_int 0L width false)) "noflush accepted without pcid";
+    check (valid_cr3 Int64.min_int 0x20000L width false) "pcid noflush rejected";
+    check (not (valid_cr3 0x6000_0000_0000_0000L 0L width false)) "lam accepted without capability";
+    check (valid_cr3 0x6000_0000_0000_0000L 0L width true) "supported lam rejected"
+  done;
+  check (not (valid_cr3 0L 0L 64 false)) "invalid physical width accepted";
+  print_endline "ok native cr3 reserved bits, pcid and lam"

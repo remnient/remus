@@ -9,6 +9,7 @@
 #include <asm/gsseg.h>
 #include <asm/special_insns.h>
 #include "remus.h"
+#include "register.h"
 
 DEFINE_PER_CPU(struct remus_cpu *, remus_cpu_data);
 
@@ -23,6 +24,7 @@ void remus_capture(void *argument) {
   remus_cpuid(1, &eax, &ebx, &ecx, &edx);
   if (!(ecx & BIT(5))) return;
   cap->flags = 1;
+  if (boot_cpu_has(X86_FEATURE_LAM)) cap->flags |= 16;
   if (ecx & BIT(31)) cap->flags |= 8;
   remus_read_msr(0x3a, cap->feature_control);
   remus_read_msr(MSR_IA32_VMX_BASIC, cap->basic);
@@ -409,6 +411,8 @@ int remus_dispatch(struct remus_cpu *cpu) {
       if (control_register == 3) {
         cpu->status.cr3++;
         if (!access) {
+          if (!remus_valid_cr3(registers[index], remus_vmread(GUEST_CR4), cpu->physical_bits,
+                               cpu->capability.flags & 16)) { inject(13, true); return 1; }
           remus_vmwrite(GUEST_CR3, registers[index] & ~BIT_ULL(63));
           remus_ept_reset(cpu);
         } else registers[index] = remus_vmread(GUEST_CR3);
