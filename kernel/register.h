@@ -12,4 +12,8 @@ static inline int remus_valid_cr3(__u64 value, __u64 cr4, unsigned int physical_
   return !(value & ~allowed);
 }
 
+static inline int remus_cr3_flush(__u64 value, __u64 cr4) {
+  return !(cr4 & (1ULL << 17)) || !(value & (1ULL << 63));
+}
+
 #endif

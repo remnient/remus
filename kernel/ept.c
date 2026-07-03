@@ -146,22 +146,36 @@ void remus_refresh_shadows(void *argument) {
   } else remus_ept_apply(cpu);
 }
 
-void remus_invalidate(struct remus_cpu *cpu) {
+static void invalidate_ept(struct remus_cpu *cpu) {
   struct { u64 eptp; u64 reserved; } __aligned(16) ept = { cpu->eptp, 0 };
-  struct { u16 vpid; u16 r1; u32 r2; u64 address; } __aligned(16) vpid = { 1, 0, 0, 0 };
   unsigned long single = 1;
   u8 failed;
   asm volatile("invept %2, %1; setna %0" : "=qm"(failed) : "r"(single), "m"(ept) : "cc", "memory");
   if (failed) panic("remus: invept failed");
-  asm volatile("invvpid %2, %1; setna %0" : "=qm"(failed) : "r"(single), "m"(vpid) : "cc", "memory");
+}
+
+void remus_invalidate_vpid(struct remus_cpu *cpu, bool retain_globals) {
+  struct { u16 vpid; u16 r1; u32 r2; u64 address; } __aligned(16) vpid = { 1, 0, 0, 0 };
+  unsigned long type = retain_globals && (cpu->capability.ept_vpid & BIT_ULL(43)) ? 3 : 1;
+  u8 failed;
+  asm volatile("invvpid %2, %1; setna %0" : "=qm"(failed) : "r"(type), "m"(vpid) : "cc", "memory");
   if (failed) panic("remus: invvpid failed");
+}
+
+void remus_invalidate(struct remus_cpu *cpu) {
+  invalidate_ept(cpu);
+  remus_invalidate_vpid(cpu, false);
 }
 
 void remus_ept_reset(struct remus_cpu *cpu) {
   unsigned int i;
+  bool changed = false;
   for (i = 0; i < REMUS_MAX_SHADOWS; i++)
-    if (cpu->shadow_entries[i]) WRITE_ONCE(*cpu->shadow_entries[i], cpu->shadow_originals[i] & ~BIT_ULL(2));
-  remus_invalidate(cpu);
+    if (cpu->shadow_entries[i]) {
+      WRITE_ONCE(*cpu->shadow_entries[i], cpu->shadow_originals[i] & ~BIT_ULL(2));
+      changed = true;
+    }
+  if (changed) invalidate_ept(cpu);
 }
 
 bool remus_ept_violation(struct remus_cpu *cpu, u64 address, u64 qualification) {

@@ -171,7 +171,7 @@ static int configure_vmcs(struct remus_cpu *cpu) {
   VMCS_SET(EXCEPTION_BITMAP, 0);
   VMCS_SET(CR3_TARGET_COUNT, 0);
   VMCS_SET(CR0_GUEST_HOST_MASK, 0);
-  VMCS_SET(CR4_GUEST_HOST_MASK, BIT_ULL(13));
+  VMCS_SET(CR4_GUEST_HOST_MASK, BIT_ULL(13) | BIT_ULL(7) | BIT_ULL(17) | BIT_ULL(12) | BIT_ULL(23));
   VMCS_SET(CR0_READ_SHADOW, read_cr0());
   VMCS_SET(CR4_READ_SHADOW, __read_cr4() & ~BIT_ULL(13));
   for (i = 0; i < 8; i++)
@@ -415,6 +415,7 @@ int remus_dispatch(struct remus_cpu *cpu) {
                                cpu->capability.flags & 16)) { inject(13, true); return 1; }
           remus_vmwrite(GUEST_CR3, registers[index] & ~BIT_ULL(63));
           remus_ept_reset(cpu);
+          if (remus_cr3_flush(registers[index], remus_vmread(GUEST_CR4))) remus_invalidate_vpid(cpu, true);
         } else registers[index] = remus_vmread(GUEST_CR3);
       } else if (!access) {
         u64 requested = registers[index], actual = requested | BIT_ULL(13);
@@ -426,6 +427,7 @@ int remus_dispatch(struct remus_cpu *cpu) {
         }
         remus_vmwrite(GUEST_CR4, actual);
         remus_vmwrite(CR4_READ_SHADOW, requested);
+        if ((actual ^ old) & (BIT_ULL(7) | BIT_ULL(17))) remus_invalidate_vpid(cpu, false);
       } else registers[index] = (remus_vmread(GUEST_CR4) & ~BIT_ULL(13))
                                   | (remus_vmread(CR4_READ_SHADOW) & BIT_ULL(13));
       break;

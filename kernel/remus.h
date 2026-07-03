@@ -108,6 +108,7 @@ bool remus_ept_violation(struct remus_cpu *cpu, u64 address, u64 qualification);
 void remus_ept_reset(struct remus_cpu *cpu);
 void remus_ept_apply(struct remus_cpu *cpu);
 void remus_invalidate(struct remus_cpu *cpu);
+void remus_invalidate_vpid(struct remus_cpu *cpu, bool retain_globals);
 void remus_refresh_shadows(void *argument);
 int remus_launch(struct remus_cpu *cpu);
 void remus_entry(void);

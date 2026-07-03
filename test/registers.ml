@@ -1,8 +1,11 @@
 external valid_cr3 : int64 -> int64 -> int -> bool -> bool = "remus_test_cr3"
+external flush_cr3 : int64 -> int64 -> bool = "remus_test_flush"
 
 let check condition message = if not condition then failwith message
 
 let () =
+  check (flush_cr3 0L 0L && flush_cr3 0L 0x20000L) "ordinary cr3 writes must flush";
+  check (not (flush_cr3 Int64.min_int 0x20000L)) "pcid noflush ignored";
   for width = 32 to 52 do
     let last = Int64.pred (Int64.shift_left 1L width) in
     check (valid_cr3 last 0L width false) "valid physical address rejected";
