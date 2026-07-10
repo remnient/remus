@@ -16,4 +16,9 @@ static inline int remus_cr3_flush(__u64 value, __u64 cr4) {
   return !(cr4 & (1ULL << 17)) || !(value & (1ULL << 63));
 }
 
+static inline int remus_mtrr_msr(unsigned int index, unsigned int count) {
+  return index == 0x2ff || index == 0x250 || index == 0x258 || index == 0x259
+      || (index >= 0x268 && index <= 0x26f) || (index >= 0x200 && index - 0x200 < count * 2);
+}
+
 #endif

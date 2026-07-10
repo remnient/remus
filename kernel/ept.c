@@ -2,7 +2,9 @@
 #include <asm/msr.h>
 #include <asm/asm.h>
 #include <asm/msr-index.h>
+#include <asm/special_insns.h>
 #include "remus.h"
+#include "register.h"
 
 static u8 memory_type(struct remus_cpu *cpu, u64 first) {
   u8 type = cpu->mtrr_default & 0xff;
@@ -28,6 +30,8 @@ static int capture_mtrrs(struct remus_cpu *cpu) {
   remus_read_msr(MSR_MTRRcap, capability);
   remus_read_msr(MSR_MTRRdefType, cpu->mtrr_default);
   count = capability & 0xff;
+  cpu->mtrr_variables = count;
+  cpu->mtrr_count = 0;
   for (i = 0; i < count; i++) {
     u64 size;
     remus_read_msr(0x200 + 2 * i, base);
@@ -58,6 +62,9 @@ int remus_ept_allocate(struct remus_cpu *cpu) {
   if (!cpu->pml4 || !cpu->pdpt || !cpu->directories) return -ENOMEM;
   error = smp_call_function_single(cpu->capability.cpu, capture_mtrrs_on_cpu, cpu, 1);
   if (error || cpu->status.error) return error ?: cpu->status.error;
+  for (index = 0; index < 0x2000; index++)
+    if (remus_mtrr_msr(index, cpu->mtrr_variables))
+      ((u8 *)cpu->msr_bitmap)[2048 + index / 8] |= BIT(index % 8);
   cpu->pml4[0] = __pa(cpu->pdpt) | 7;
   cpu->eptp = __pa(cpu->pml4) | 0x1e;
   for (directory = 0; directory < 512; directory++) {
@@ -115,6 +122,46 @@ static u64 *leaf_entry(struct remus_cpu *cpu, u64 address) {
   list_for_each_entry(split, &cpu->splits, link)
     if (split->first == (address & ~(SZ_2M - 1))) return &split->entries[(address >> 12) & 511];
   return NULL;
+}
+
+int remus_ept_mtrr_write(struct remus_cpu *cpu, u32 index, u64 value) {
+  u64 previous;
+  unsigned long cr0;
+  int error;
+  unsigned int directory, slot, i;
+  if (native_read_msr_safe(index, &previous)) return -EINVAL;
+  cr0 = read_cr0();
+  write_cr0((cr0 | X86_CR0_CD) & ~X86_CR0_NW);
+  asm volatile("wbinvd" : : : "memory");
+  error = native_write_msr_safe(index, value);
+  if (!error) error = capture_mtrrs(cpu);
+  if (error) {
+    if (native_write_msr_safe(index, previous) || capture_mtrrs(cpu)) panic("remus: mtrr rollback failed");
+  }
+  asm volatile("wbinvd" : : : "memory");
+  write_cr0(cr0);
+  if (error) return -EINVAL;
+  for (directory = 0; directory < 512; directory++) {
+    for (slot = 0; slot < 512; slot++) {
+      u64 address = ((u64)directory * 512 + slot) << 21;
+      u64 *entry = &cpu->directories[directory][slot];
+      u64 type = (u64)memory_type(cpu, address) << 3;
+      if (!*entry) continue;
+      if (*entry & BIT_ULL(7)) WRITE_ONCE(*entry, (*entry & ~0x38ULL) | type);
+      else {
+        u64 *entries = __va(*entry & GENMASK_ULL(51, 12));
+        for (i = 0; i < 512; i++) WRITE_ONCE(entries[i], (entries[i] & ~0x38ULL) | type);
+      }
+    }
+  }
+  for (i = 0; i < REMUS_MAX_SHADOWS; i++)
+    if (cpu->shadow_entries[i]) {
+      u64 address = remus_shadows[i].address & ~(SZ_2M - 1);
+      cpu->shadow_originals[i] = (cpu->shadow_originals[i] & ~0x38ULL) | ((u64)memory_type(cpu, address) << 3);
+    }
+  remus_ept_apply(cpu);
+  remus_invalidate(cpu);
+  return 0;
 }
 
 void remus_ept_apply(struct remus_cpu *cpu) {

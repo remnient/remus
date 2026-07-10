@@ -1,9 +1,14 @@
 external valid_cr3 : int64 -> int64 -> int -> bool -> bool = "remus_test_cr3"
 external flush_cr3 : int64 -> int64 -> bool = "remus_test_flush"
+external mtrr_msr : int -> int -> bool = "remus_test_mtrr"
 
 let check condition message = if not condition then failwith message
 
 let () =
+  List.iter (fun index -> check (mtrr_msr index 10) "mtrr write not intercepted")
+    [0x200; 0x213; 0x250; 0x258; 0x259; 0x268; 0x26f; 0x2ff];
+  List.iter (fun index -> check (not (mtrr_msr index 10)) "unrelated msr intercepted")
+    [0x1ff; 0x214; 0x251; 0x260; 0x277; 0x300];
   check (flush_cr3 0L 0L && flush_cr3 0L 0x20000L) "ordinary cr3 writes must flush";
   check (not (flush_cr3 Int64.min_int 0x20000L)) "pcid noflush ignored";
   for width = 32 to 52 do

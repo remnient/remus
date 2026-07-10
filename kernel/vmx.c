@@ -442,6 +442,10 @@ int remus_dispatch(struct remus_cpu *cpu) {
       cpu->status.msr++;
       if (remus_vmread(GUEST_CS_SELECTOR) & 3) { inject(13, true); return 1; }
       value = ((u64)(u32)regs->rdx << 32) | (u32)regs->rax;
+      if (remus_mtrr_msr((u32)regs->rcx, cpu->mtrr_variables)) {
+        if (remus_ept_mtrr_write(cpu, (u32)regs->rcx, value)) { inject(13, true); return 1; }
+        break;
+      }
       if (native_write_msr_safe((u32)regs->rcx, value)) { inject(13, true); return 1; }
       break;
     case 37: {
