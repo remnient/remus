@@ -113,8 +113,14 @@ let test_mtrr () =
     { first = 0x1000L; last = 0x1fffL; memory_type = Uncacheable };
     { first = 0x1800L; last = 0x2fffL; memory_type = Write_through };
   ] in
-  check (Mtrr.effective_type ranges ~first:0L ~last:0x1f_ffffL ~default:Write_back = Write_through)
-    "upstream last overlapping mtrr wins"
+  check (Mtrr.effective_type ranges ~first:0L ~last:0x1f_ffffL ~default:Write_back = Uncacheable)
+    "mixed memory types require a conservative large-page type";
+  let whole memory_type : Mtrr.range = { first = 0L; last = 0x1f_ffffL; memory_type } in
+  List.iter (fun ranges ->
+      check (Mtrr.effective_type ranges ~first:0x1000L ~last:0x1fffL ~default:Write_back = Write_through)
+        "wt and wb overlap precedence") [[whole Write_back; whole Write_through]; [whole Write_through; whole Write_back]];
+  check (Mtrr.effective_type [whole Write_back; whole Uncacheable] ~first:0L ~last:4095L ~default:Write_back = Uncacheable)
+    "uc overlap precedence"
 
 let test_gdt () =
   let table = Bytes.make 32 '\000' in

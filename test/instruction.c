@@ -12,3 +12,7 @@ CAMLprim value remus_test_flush(value request, value cr4) {
 CAMLprim value remus_test_mtrr(value index, value count) {
   return Val_bool(remus_mtrr_msr(Int_val(index), Int_val(count)));
 }
+
+CAMLprim value remus_test_fixed(value address) {
+  return Val_int(remus_fixed_index(Int64_val(address)));
+}

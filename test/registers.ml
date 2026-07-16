@@ -1,10 +1,14 @@
 external valid_cr3 : int64 -> int64 -> int -> bool -> bool = "remus_test_cr3"
 external flush_cr3 : int64 -> int64 -> bool = "remus_test_flush"
 external mtrr_msr : int -> int -> bool = "remus_test_mtrr"
+external fixed_index : int64 -> int = "remus_test_fixed"
 
 let check condition message = if not condition then failwith message
 
 let () =
+  List.iter (fun (address, expected) -> check (fixed_index address = expected) "fixed mtrr boundary")
+    [0L, 0; 0x7ffffL, 7; 0x80000L, 8; 0x9ffffL, 15; 0xa0000L, 16;
+     0xbffffL, 23; 0xc0000L, 24; 0xfffffL, 87; 0x100000L, -1];
   List.iter (fun index -> check (mtrr_msr index 10) "mtrr write not intercepted")
     [0x200; 0x213; 0x250; 0x258; 0x259; 0x268; 0x26f; 0x2ff];
   List.iter (fun index -> check (not (mtrr_msr index 10)) "unrelated msr intercepted")

@@ -76,6 +76,8 @@ struct remus_cpu {
   unsigned int mtrr_variables;
   unsigned int physical_bits;
   u64 mtrr_default;
+  u8 mtrr_fixed[88];
+  bool fixed_enabled;
   bool vmxon_active;
   struct remus_mtf_handler mtf_handlers[50];
   unsigned int mtf_count;

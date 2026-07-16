@@ -42,9 +42,14 @@ let decode_range ~physical_bits ~base ~mask =
           Ok (Some { first; last = Int64.sub (Int64.add first length) 1L; memory_type })
 
 let effective_type ranges ~first ~last ~default =
-  List.fold_left
-    (fun memory_type range ->
-      if Bits.unsigned_le first range.last && Bits.unsigned_le range.first last then
-        range.memory_type
-      else memory_type)
-    default ranges
+  let ranges = List.filter (fun range ->
+      Bits.unsigned_le first range.last && Bits.unsigned_le range.first last) ranges in
+  if List.exists (fun range -> not (Bits.unsigned_le range.first first && Bits.unsigned_le last range.last)) ranges
+  then Uncacheable
+  else match ranges with
+    | [] -> default
+    | range :: rest ->
+        List.fold_left (fun memory_type range -> match memory_type, range.memory_type with
+            | left, right when left = right -> left
+            | Write_back, Write_through | Write_through, Write_back -> Write_through
+            | _ -> Uncacheable) range.memory_type rest

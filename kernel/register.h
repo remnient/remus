@@ -21,4 +21,11 @@ static inline int remus_mtrr_msr(unsigned int index, unsigned int count) {
       || (index >= 0x268 && index <= 0x26f) || (index >= 0x200 && index - 0x200 < count * 2);
 }
 
+static inline int remus_fixed_index(__u64 address) {
+  if (address < 0x80000) return address >> 16;
+  if (address < 0xc0000) return 8 + ((address - 0x80000) >> 14);
+  if (address < 0x100000) return 24 + ((address - 0xc0000) >> 12);
+  return -1;
+}
+
 #endif

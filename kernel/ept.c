@@ -6,15 +6,19 @@
 #include "remus.h"
 #include "register.h"
 
-static u8 memory_type(struct remus_cpu *cpu, u64 first) {
+static u8 memory_type(struct remus_cpu *cpu, u64 first, u64 length) {
   u8 type = cpu->mtrr_default & 0xff;
   bool matched = false;
   unsigned int i;
-  if (!(cpu->mtrr_default & BIT_ULL(11)) || first < SZ_2M) return 0;
+  if (!(cpu->mtrr_default & BIT_ULL(11))) return 0;
+  if (cpu->fixed_enabled && first < 0x100000) {
+    if (length > PAGE_SIZE) return 0;
+    return cpu->mtrr_fixed[remus_fixed_index(first)];
+  }
   for (i = 0; i < cpu->mtrr_count; i++) {
     struct remus_mtrr *range = &cpu->mtrrs[i];
-    if (first > range->last || first + SZ_2M - 1 < range->first) continue;
-    if (first < range->first || first + SZ_2M - 1 > range->last) return 0;
+    if (first > range->last || first + length - 1 < range->first) continue;
+    if (first < range->first || first + length - 1 > range->last) return 0;
     if (!matched) { type = range->type; matched = true; }
     else if (!type || !range->type) return 0;
     else if ((type == 4 && range->type == 6) || (type == 6 && range->type == 4)) type = 4;
@@ -27,8 +31,16 @@ static int capture_mtrrs(struct remus_cpu *cpu) {
   u64 capability, base, mask;
   u64 address_mask = GENMASK_ULL(cpu->physical_bits - 1, PAGE_SHIFT);
   unsigned int i, count;
+  static const u32 fixed[] = { 0x250, 0x258, 0x259, 0x268, 0x269, 0x26a, 0x26b, 0x26c, 0x26d, 0x26e, 0x26f };
   remus_read_msr(MSR_MTRRcap, capability);
   remus_read_msr(MSR_MTRRdefType, cpu->mtrr_default);
+  cpu->fixed_enabled = (capability & BIT_ULL(8)) && (cpu->mtrr_default & BIT_ULL(10));
+  if (cpu->fixed_enabled)
+    for (i = 0; i < ARRAY_SIZE(fixed); i++) {
+      unsigned int byte;
+      remus_read_msr(fixed[i], base);
+      for (byte = 0; byte < 8; byte++) cpu->mtrr_fixed[i * 8 + byte] = (base >> (byte * 8)) & 0xff;
+    }
   count = capability & 0xff;
   cpu->mtrr_variables = count;
   cpu->mtrr_count = 0;
@@ -38,7 +50,7 @@ static int capture_mtrrs(struct remus_cpu *cpu) {
     remus_read_msr(0x201 + 2 * i, mask);
     if (!(mask & BIT_ULL(11))) continue;
     size = ((~mask & address_mask) | (PAGE_SIZE - 1)) + 1;
-    if (!is_power_of_2(size)) return -EINVAL;
+    if (!is_power_of_2(size) || ((base & address_mask) & (size - 1))) return -EINVAL;
     cpu->mtrrs[cpu->mtrr_count++] = (struct remus_mtrr) {
       .first = base & address_mask,
       .last = (base & address_mask) + size - 1,
@@ -74,8 +86,21 @@ int remus_ept_allocate(struct remus_cpu *cpu) {
     for (index = 0; index < 512; index++) {
       u64 address = ((u64)directory * 512 + index) << 21;
       if (address >> cpu->physical_bits) break;
-      cpu->directories[directory][index] = address | 0x87 | ((u64)memory_type(cpu, address) << 3);
+      cpu->directories[directory][index] = address | 0x87 | ((u64)memory_type(cpu, address, SZ_2M) << 3);
     }
+  }
+  if (cpu->fixed_enabled) {
+    error = remus_split_page(cpu, 0);
+    if (error) return error;
+  }
+  for (index = 0; index < cpu->mtrr_count; index++) {
+    u64 boundaries[] = { cpu->mtrrs[index].first, cpu->mtrrs[index].last + 1 };
+    unsigned int boundary;
+    for (boundary = 0; boundary < ARRAY_SIZE(boundaries); boundary++)
+      if (boundaries[boundary] < REMUS_EPT_LIMIT && (boundaries[boundary] & (SZ_2M - 1))) {
+        error = remus_split_page(cpu, boundaries[boundary]);
+        if (error) return error;
+      }
   }
   return 0;
 }
@@ -110,7 +135,10 @@ int remus_split_page(struct remus_cpu *cpu, u64 address) {
   split->entries = (void *)get_zeroed_page(GFP_KERNEL);
   if (!split->entries) { kfree(split); return -ENOMEM; }
   split->first = address & ~(SZ_2M - 1);
-  for (i = 0; i < 512; i++) split->entries[i] = (first + (u64)i * PAGE_SIZE) | (original & 0x7f);
+  for (i = 0; i < 512; i++) {
+    u64 address = first + (u64)i * PAGE_SIZE;
+    split->entries[i] = address | (original & 7) | ((u64)memory_type(cpu, address, PAGE_SIZE) << 3);
+  }
   list_add(&split->link, &cpu->splits);
   smp_wmb();
   WRITE_ONCE(*entry, __pa(split->entries) | 7);
@@ -145,19 +173,22 @@ int remus_ept_mtrr_write(struct remus_cpu *cpu, u32 index, u64 value) {
     for (slot = 0; slot < 512; slot++) {
       u64 address = ((u64)directory * 512 + slot) << 21;
       u64 *entry = &cpu->directories[directory][slot];
-      u64 type = (u64)memory_type(cpu, address) << 3;
+      u64 type = (u64)memory_type(cpu, address, SZ_2M) << 3;
       if (!*entry) continue;
       if (*entry & BIT_ULL(7)) WRITE_ONCE(*entry, (*entry & ~0x38ULL) | type);
       else {
         u64 *entries = __va(*entry & GENMASK_ULL(51, 12));
-        for (i = 0; i < 512; i++) WRITE_ONCE(entries[i], (entries[i] & ~0x38ULL) | type);
+        for (i = 0; i < 512; i++) {
+          type = (u64)memory_type(cpu, address + (u64)i * PAGE_SIZE, PAGE_SIZE) << 3;
+          WRITE_ONCE(entries[i], (entries[i] & ~0x38ULL) | type);
+        }
       }
     }
   }
   for (i = 0; i < REMUS_MAX_SHADOWS; i++)
     if (cpu->shadow_entries[i]) {
-      u64 address = remus_shadows[i].address & ~(SZ_2M - 1);
-      cpu->shadow_originals[i] = (cpu->shadow_originals[i] & ~0x38ULL) | ((u64)memory_type(cpu, address) << 3);
+      u64 address = remus_shadows[i].address;
+      cpu->shadow_originals[i] = (cpu->shadow_originals[i] & ~0x38ULL) | ((u64)memory_type(cpu, address, PAGE_SIZE) << 3);
     }
   remus_ept_apply(cpu);
   remus_invalidate(cpu);
