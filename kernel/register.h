@@ -28,4 +28,13 @@ static inline int remus_fixed_index(__u64 address) {
   return -1;
 }
 
+static inline __u64 remus_large_leaf(const __u64 *entries, __u64 first) {
+  __u64 flags = entries[0] & 0x7f;
+  unsigned int i;
+  if (first & 0x1fffff) return 0;
+  for (i = 0; i < 512; i++)
+    if (entries[i] != ((first + ((__u64)i << 12)) | flags)) return 0;
+  return first | flags | 0x80;
+}
+
 #endif

@@ -113,6 +113,11 @@ void remus_ept_free(struct remus_cpu *cpu) {
     free_page((unsigned long)split->entries);
     kfree(split);
   }
+  list_for_each_entry_safe(split, next, &cpu->retired, link) {
+    list_del(&split->link);
+    free_page((unsigned long)split->entries);
+    kfree(split);
+  }
   if (cpu->directories) {
     for (i = 0; i < 512; i++) if (cpu->directories[i]) free_page((unsigned long)cpu->directories[i]);
     kfree(cpu->directories);
@@ -150,6 +155,25 @@ static u64 *leaf_entry(struct remus_cpu *cpu, u64 address) {
   list_for_each_entry(split, &cpu->splits, link)
     if (split->first == (address & ~(SZ_2M - 1))) return &split->entries[(address >> 12) & 511];
   return NULL;
+}
+
+void remus_ept_reclaim(struct remus_cpu *cpu) {
+  struct remus_split *split, *next;
+  unsigned int i;
+  list_for_each_entry_safe(split, next, &cpu->splits, link) {
+    u64 large;
+    bool busy = false;
+    for (i = 0; i < REMUS_MAX_SHADOWS; i++)
+      if (cpu->shadow_entries[i] && (remus_shadows[i].address & ~(SZ_2M - 1)) == split->first) {
+        busy = true;
+        break;
+      }
+    if (busy) continue;
+    large = remus_large_leaf(split->entries, split->first);
+    if (!large) continue;
+    WRITE_ONCE(cpu->directories[(split->first >> 30) & 511][(split->first >> 21) & 511], large);
+    list_move_tail(&split->link, &cpu->retired);
+  }
 }
 
 int remus_ept_mtrr_write(struct remus_cpu *cpu, u32 index, u64 value) {
@@ -215,6 +239,7 @@ void remus_ept_apply(struct remus_cpu *cpu) {
 
 void remus_refresh_shadows(void *argument) {
   struct remus_cpu *cpu = this_cpu_read(remus_cpu_data);
+  struct remus_split *split, *next;
   if (!cpu) return;
   if (cpu->status.active) {
     long result = -EIO;
@@ -222,6 +247,11 @@ void remus_refresh_shadows(void *argument) {
         : "+a"(result) : "c"(REMUS_VMCALL_KEY), "d"(REMUS_ACTION_INVALIDATE) : "memory");
     if (result) panic("remus: ept control hypercall failed");
   } else remus_ept_apply(cpu);
+  list_for_each_entry_safe(split, next, &cpu->retired, link) {
+    list_del(&split->link);
+    free_page((unsigned long)split->entries);
+    kfree(split);
+  }
 }
 
 static void invalidate_ept(struct remus_cpu *cpu) {

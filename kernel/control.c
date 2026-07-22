@@ -101,6 +101,7 @@ static int start_locked(struct remus_start *request) {
     cpu = kzalloc(sizeof(*cpu), GFP_KERNEL);
     if (!cpu) { error = -ENOMEM; goto release; }
     INIT_LIST_HEAD(&cpu->splits);
+    INIT_LIST_HEAD(&cpu->retired);
     cpu->status.cpu = id;
     cpu->control = request->cpus[count++];
     per_cpu(remus_cpu_data, id) = cpu;

@@ -2,10 +2,16 @@ external valid_cr3 : int64 -> int64 -> int -> bool -> bool = "remus_test_cr3"
 external flush_cr3 : int64 -> int64 -> bool = "remus_test_flush"
 external mtrr_msr : int -> int -> bool = "remus_test_mtrr"
 external fixed_index : int64 -> int = "remus_test_fixed"
+external large_leaf : bytes -> int64 -> int64 = "remus_test_large"
 
 let check condition message = if not condition then failwith message
 
 let () =
+  let leaves = Bytes.create 4096 in
+  for i = 0 to 511 do Bytes.set_int64_le leaves (i * 8) (Int64.of_int (0x200000 + i * 4096 + 0x37)) done;
+  check (large_leaf leaves 0x200000L = 0x2000b7L) "uniform split did not coalesce";
+  Bytes.set_int64_le leaves 2048 0x300007L;
+  check (large_leaf leaves 0x200000L = 0L) "mixed memory types coalesced";
   List.iter (fun (address, expected) -> check (fixed_index address = expected) "fixed mtrr boundary")
     [0L, 0; 0x7ffffL, 7; 0x80000L, 8; 0x9ffffL, 15; 0xa0000L, 16;
      0xbffffL, 23; 0xc0000L, 24; 0xfffffL, 87; 0x100000L, -1];

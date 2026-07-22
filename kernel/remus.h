@@ -69,6 +69,7 @@ struct remus_cpu {
   u64 **directories;
   u64 eptp;
   struct list_head splits;
+  struct list_head retired;
   u64 *shadow_entries[REMUS_MAX_SHADOWS];
   u64 shadow_originals[REMUS_MAX_SHADOWS];
   struct remus_mtrr mtrrs[256];
@@ -107,6 +108,7 @@ int remus_stop_cpu(void *argument);
 int remus_split_page(struct remus_cpu *cpu, u64 address);
 int remus_ept_allocate(struct remus_cpu *cpu);
 void remus_ept_free(struct remus_cpu *cpu);
+void remus_ept_reclaim(struct remus_cpu *cpu);
 int remus_ept_mtrr_write(struct remus_cpu *cpu, u32 index, u64 value);
 bool remus_ept_violation(struct remus_cpu *cpu, u64 address, u64 qualification);
 void remus_ept_reset(struct remus_cpu *cpu);

@@ -398,7 +398,12 @@ int remus_dispatch(struct remus_cpu *cpu) {
         return 1;
       }
       if (regs->rdx == REMUS_ACTION_STOP) { regs->rax = 0; advance(); return 0; }
-      if (regs->rdx == REMUS_ACTION_INVALIDATE) { remus_ept_apply(cpu); remus_invalidate(cpu); regs->rax = 0; }
+      if (regs->rdx == REMUS_ACTION_INVALIDATE) {
+        remus_ept_apply(cpu);
+        remus_ept_reclaim(cpu);
+        remus_invalidate(cpu);
+        regs->rax = 0;
+      }
       else if (!legacy_command(cpu, regs->rdx)) { inject(6, false); return 1; }
       break;
     case 28: {
