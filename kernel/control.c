@@ -192,7 +192,8 @@ static int read_target(struct remus_shadow_request *request) {
 static int install_shadow(struct remus_shadow_request *request) {
   struct remus_shadow *shadow;
   unsigned int slot, id;
-  int error;
+  int error, rollback;
+  bool published = false;
   if (!active) return -ENXIO;
   for (slot = 0; slot < REMUS_MAX_SHADOWS; slot++) if (!remus_shadows[slot].page) break;
   if (slot == REMUS_MAX_SHADOWS) return -ENOSPC;
@@ -214,11 +215,17 @@ static int install_shadow(struct remus_shadow_request *request) {
   memcpy(request->page, page_address(shadow->page), PAGE_SIZE);
   smp_wmb();
   shadow->enabled = true;
+  published = true;
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
   if (!error) return 0;
-  shadow->enabled = false;
-  stop_machine(refresh_cpu, NULL, cpu_online_mask);
 release:
+  shadow->enabled = false;
+  rollback = stop_machine(refresh_cpu, NULL, cpu_online_mask);
+  if (rollback) {
+    shadow->enabled = published;
+    pr_err("remus: shadow rollback failed for slot %u: %d\n", slot, rollback);
+    return rollback;
+  }
   release_shadow(shadow);
   return error;
 }
