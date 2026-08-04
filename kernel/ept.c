@@ -1,4 +1,5 @@
 #include <linux/slab.h>
+#include <linux/rculist.h>
 #include <asm/msr.h>
 #include <asm/asm.h>
 #include <asm/msr-index.h>
@@ -144,15 +145,14 @@ int remus_split_page(struct remus_cpu *cpu, u64 address) {
     u64 address = first + (u64)i * PAGE_SIZE;
     split->entries[i] = address | (original & 7) | ((u64)memory_type(cpu, address, PAGE_SIZE) << 3);
   }
-  list_add(&split->link, &cpu->splits);
-  smp_wmb();
+  list_add_rcu(&split->link, &cpu->splits);
   WRITE_ONCE(*entry, __pa(split->entries) | 7);
   return 0;
 }
 
 static u64 *leaf_entry(struct remus_cpu *cpu, u64 address) {
   struct remus_split *split;
-  list_for_each_entry(split, &cpu->splits, link)
+  list_for_each_entry_rcu(split, &cpu->splits, link, 1)
     if (split->first == (address & ~(SZ_2M - 1))) return &split->entries[(address >> 12) & 511];
   return NULL;
 }
@@ -224,7 +224,7 @@ void remus_ept_apply(struct remus_cpu *cpu) {
   if (!cpu) return;
   for (i = 0; i < REMUS_MAX_SHADOWS; i++) {
     struct remus_shadow *shadow = &remus_shadows[i];
-    if (shadow->enabled) {
+    if (smp_load_acquire(&shadow->enabled)) {
       u64 *entry = leaf_entry(cpu, shadow->address);
       if (!entry) continue;
       if (!cpu->shadow_entries[i]) cpu->shadow_originals[i] = *entry;

@@ -213,16 +213,15 @@ static int install_shadow(struct remus_shadow_request *request) {
   request->physical_address = shadow->address;
   request->process_cr3 = shadow->process_cr3;
   memcpy(request->page, page_address(shadow->page), PAGE_SIZE);
-  smp_wmb();
-  shadow->enabled = true;
+  smp_store_release(&shadow->enabled, true);
   published = true;
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
   if (!error) return 0;
 release:
-  shadow->enabled = false;
+  smp_store_release(&shadow->enabled, false);
   rollback = stop_machine(refresh_cpu, NULL, cpu_online_mask);
   if (rollback) {
-    shadow->enabled = published;
+    smp_store_release(&shadow->enabled, published);
     pr_err("remus: shadow rollback failed for slot %u: %d\n", slot, rollback);
     return rollback;
   }
@@ -234,9 +233,9 @@ static int remove_shadow(u32 slot) {
   int error;
   if (!active) return -ENXIO;
   if (slot >= REMUS_MAX_SHADOWS || !remus_shadows[slot].page) return -ENOENT;
-  remus_shadows[slot].enabled = false;
+  smp_store_release(&remus_shadows[slot].enabled, false);
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
-  if (error) { remus_shadows[slot].enabled = true; return error; }
+  if (error) { smp_store_release(&remus_shadows[slot].enabled, true); return error; }
   release_shadow(&remus_shadows[slot]);
   return 0;
 }
