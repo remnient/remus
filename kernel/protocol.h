@@ -103,6 +103,16 @@ struct remus_shadow_request {
   __u8 page[4096];
 };
 
+struct remus_pair {
+  __u32 version;
+  __u32 count;
+  struct remus_shadow_request requests[2];
+};
+
+struct remus_unpair { __u32 ids[2]; };
+
+#define REMUS_IOCTL_PAIR _IOWR('R', 7, struct remus_pair)
+#define REMUS_IOCTL_UNPAIR _IOW('R', 8, struct remus_unpair)
 #define REMUS_IOCTL_PROBE _IOR('R', 0, struct remus_probe)
 #define REMUS_IOCTL_START _IOW('R', 1, struct remus_start)
 #define REMUS_IOCTL_STOP _IO('R', 2)

@@ -5,6 +5,7 @@ let probe_size = 16 + max_cpus * 128
 let start_size = 16 + max_cpus * 32
 let status_size = 16 + max_cpus * 88
 let shadow_size = 40 + 4096
+let pair_size = 8 + 2 * shadow_size
 
 type capability = {
   cpu : int;
@@ -56,6 +57,8 @@ let status_command = ioctl 2 3 status_size
 let shadow_command = ioctl 3 4 shadow_size
 let unshadow_command = ioctl 1 5 4
 let read_page_command = ioctl 3 6 shadow_size
+let pair_command = ioctl 3 7 pair_size
+let unpair_command = ioctl 1 8 8
 
 let uint32 bytes offset = Int64.to_int (Bits.low32 (Int64.of_int32 (Bytes.get_int32_le bytes offset)))
 
@@ -133,3 +136,28 @@ let decode_shadow bytes =
   if id >= max_shadows then failwith "native shadow id exceeds the protocol limit";
   { id; physical_address = Bytes.get_int64_le bytes 24;
     process_cr3 = Bytes.get_int64_le bytes 32; original = Bytes.sub bytes 40 4096 }
+
+let encode_pair ~pid (first, first_page) (second, second_page) =
+  let bytes = Bytes.make pair_size '\000' in
+  Bytes.set_int32_le bytes 0 (Int32.of_int version);
+  Bytes.set_int32_le bytes 4 2l;
+  List.iteri (fun index (address, page) ->
+      Bytes.blit (encode_shadow ~pid ~address page) 0 bytes (8 + index * shadow_size) shadow_size)
+    [first, first_page; second, second_page];
+  bytes
+
+let decode_pair bytes =
+  if Bytes.length bytes <> pair_size || uint32 bytes 0 <> version || uint32 bytes 4 <> 2 then
+    invalid_arg "native pair response";
+  let first = decode_shadow (Bytes.sub bytes 8 shadow_size) in
+  let second = decode_shadow (Bytes.sub bytes (8 + shadow_size) shadow_size) in
+  if first.id = second.id then failwith "duplicate shadow transaction identifiers";
+  first, second
+
+let encode_unpair first second =
+  if first < 0 || first >= max_shadows || second < 0 || second >= max_shadows || first = second then
+    invalid_arg "invalid shadow transaction identifiers";
+  let bytes = Bytes.create 8 in
+  Bytes.set_int32_le bytes 0 (Int32.of_int first);
+  Bytes.set_int32_le bytes 4 (Int32.of_int second);
+  bytes

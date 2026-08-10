@@ -189,54 +189,78 @@ static int read_target(struct remus_shadow_request *request) {
   return error;
 }
 
-static int install_shadow(struct remus_shadow_request *request) {
-  struct remus_shadow *shadow;
-  unsigned int slot, id;
-  int error, rollback;
-  bool published = false;
-  if (!active) return -ENXIO;
-  for (slot = 0; slot < REMUS_MAX_SHADOWS; slot++) if (!remus_shadows[slot].page) break;
-  if (slot == REMUS_MAX_SHADOWS) return -ENOSPC;
-  shadow = &remus_shadows[slot];
+static int prepare_shadow(struct remus_shadow_request *request, unsigned int slot) {
+  struct remus_shadow *shadow = &remus_shadows[slot];
+  unsigned int id;
+  int error;
   shadow->payload = (void *)get_zeroed_page(GFP_KERNEL);
   if (!shadow->payload) return -ENOMEM;
   memcpy(shadow->payload, request->page, PAGE_SIZE);
   error = pin_target(shadow, request, false);
-  if (error) goto release;
+  if (error) return error;
   for (id = 0; id < REMUS_MAX_SHADOWS; id++)
-    if (id != slot && remus_shadows[id].page && remus_shadows[id].address == shadow->address) { error = -EEXIST; goto release; }
+    if (id != slot && remus_shadows[id].page && remus_shadows[id].address == shadow->address) return -EEXIST;
   for_each_online_cpu(id) {
     error = remus_split_page(per_cpu(remus_cpu_data, id), shadow->address);
-    if (error) goto release;
+    if (error) return error;
   }
   request->id = slot;
   request->physical_address = shadow->address;
   request->process_cr3 = shadow->process_cr3;
   memcpy(request->page, page_address(shadow->page), PAGE_SIZE);
-  smp_store_release(&shadow->enabled, true);
+  return 0;
+}
+
+static int install_shadows(struct remus_shadow_request *requests, unsigned int count) {
+  unsigned int slots[2] = { REMUS_MAX_SHADOWS, REMUS_MAX_SHADOWS }, i, slot;
+  int error = 0, rollback;
+  bool published = false;
+  if (!active) return -ENXIO;
+  if (!count || count > ARRAY_SIZE(slots)) return -EINVAL;
+  for (i = 0; i < count; i++) {
+    for (slot = 0; slot < REMUS_MAX_SHADOWS; slot++)
+      if (!remus_shadows[slot].page && !remus_shadows[slot].payload) break;
+    if (slot == REMUS_MAX_SHADOWS) { error = -ENOSPC; goto release; }
+    slots[i] = slot;
+    error = prepare_shadow(&requests[i], slot);
+    if (error) goto release;
+  }
+  for (i = 0; i < count; i++) smp_store_release(&remus_shadows[slots[i]].enabled, true);
   published = true;
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
   if (!error) return 0;
 release:
-  smp_store_release(&shadow->enabled, false);
+  for (i = 0; i < count; i++)
+    if (slots[i] < REMUS_MAX_SHADOWS) smp_store_release(&remus_shadows[slots[i]].enabled, false);
   rollback = stop_machine(refresh_cpu, NULL, cpu_online_mask);
   if (rollback) {
-    smp_store_release(&shadow->enabled, published);
-    pr_err("remus: shadow rollback failed for slot %u: %d\n", slot, rollback);
+    for (i = 0; i < count; i++)
+      if (slots[i] < REMUS_MAX_SHADOWS) smp_store_release(&remus_shadows[slots[i]].enabled, published);
+    pr_err("remus: shadow transaction rollback failed: %d\n", rollback);
     return rollback;
   }
-  release_shadow(shadow);
+  for (i = 0; i < count; i++) if (slots[i] < REMUS_MAX_SHADOWS) release_shadow(&remus_shadows[slots[i]]);
   return error;
 }
 
-static int remove_shadow(u32 slot) {
+static int remove_shadows(const u32 *slots, unsigned int count) {
+  unsigned int i;
+  bool enabled[2];
   int error;
   if (!active) return -ENXIO;
-  if (slot >= REMUS_MAX_SHADOWS || !remus_shadows[slot].page) return -ENOENT;
-  smp_store_release(&remus_shadows[slot].enabled, false);
+  if (!count || count > ARRAY_SIZE(enabled)) return -EINVAL;
+  for (i = 0; i < count; i++) {
+    if (slots[i] >= REMUS_MAX_SHADOWS || (i && slots[i] == slots[0])) return -EINVAL;
+    if (count == 1 && !remus_shadows[slots[i]].page) return -ENOENT;
+    enabled[i] = remus_shadows[slots[i]].enabled;
+  }
+  for (i = 0; i < count; i++) smp_store_release(&remus_shadows[slots[i]].enabled, false);
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
-  if (error) { smp_store_release(&remus_shadows[slot].enabled, true); return error; }
-  release_shadow(&remus_shadows[slot]);
+  if (error) {
+    for (i = 0; i < count; i++) smp_store_release(&remus_shadows[slots[i]].enabled, enabled[i]);
+    return error;
+  }
+  for (i = 0; i < count; i++) release_shadow(&remus_shadows[slots[i]]);
   return 0;
 }
 
@@ -248,7 +272,7 @@ static long remus_ioctl(struct file *file, unsigned int command, unsigned long u
   if (!capable(CAP_SYS_RAWIO)) return -EPERM;
   if (command != REMUS_IOCTL_PROBE && command != REMUS_IOCTL_START && command != REMUS_IOCTL_STOP
       && command != REMUS_IOCTL_STATUS && command != REMUS_IOCTL_SHADOW && command != REMUS_IOCTL_UNSHADOW
-      && command != REMUS_IOCTL_READ_PAGE) return -ENOTTY;
+      && command != REMUS_IOCTL_READ_PAGE && command != REMUS_IOCTL_PAIR && command != REMUS_IOCTL_UNPAIR) return -ENOTTY;
   if (size) {
     buffer = kvzalloc(size, GFP_KERNEL);
     if (!buffer) return -ENOMEM;
@@ -259,9 +283,16 @@ static long remus_ioctl(struct file *file, unsigned int command, unsigned long u
     case REMUS_IOCTL_PROBE: error = fill_probe(buffer); break;
     case REMUS_IOCTL_START: error = start_locked(buffer); break;
     case REMUS_IOCTL_STOP: error = stop_locked(); break;
-    case REMUS_IOCTL_SHADOW: error = install_shadow(buffer); break;
+    case REMUS_IOCTL_SHADOW: error = install_shadows(buffer, 1); break;
+    case REMUS_IOCTL_PAIR: {
+      struct remus_pair *pair = buffer;
+      if (pair->version != REMUS_ABI_VERSION || pair->count != 2) error = -EINVAL;
+      else error = install_shadows(pair->requests, 2);
+      break;
+    }
+    case REMUS_IOCTL_UNPAIR: error = remove_shadows(buffer, 2); break;
     case REMUS_IOCTL_READ_PAGE: error = read_target(buffer); break;
-    case REMUS_IOCTL_UNSHADOW: error = remove_shadow(*(u32 *)buffer); break;
+    case REMUS_IOCTL_UNSHADOW: error = remove_shadows(buffer, 1); break;
     case REMUS_IOCTL_STATUS: {
       struct remus_status *status = buffer;
       status->version = REMUS_ABI_VERSION;
@@ -285,7 +316,14 @@ static long remus_ioctl(struct file *file, unsigned int command, unsigned long u
     }
   }
   if (!error && (_IOC_DIR(command) & _IOC_READ) && copy_to_user(pointer, buffer, size)) {
-    if (command == REMUS_IOCTL_SHADOW) remove_shadow(((struct remus_shadow_request *)buffer)->id);
+    if (command == REMUS_IOCTL_SHADOW) {
+      u32 slot = ((struct remus_shadow_request *)buffer)->id;
+      remove_shadows(&slot, 1);
+    } else if (command == REMUS_IOCTL_PAIR) {
+      struct remus_pair *pair = buffer;
+      u32 slots[] = { pair->requests[0].id, pair->requests[1].id };
+      remove_shadows(slots, 2);
+    }
     error = -EFAULT;
   }
   mutex_unlock(&control_lock);

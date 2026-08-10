@@ -8,7 +8,7 @@ let test_abi () =
       Int64.of_int Protocol.status_size; Int64.of_int Protocol.shadow_size]
     @ [Protocol.probe_command; Protocol.start_command; Protocol.stop_command;
        Protocol.status_command; Protocol.shadow_command; Protocol.unshadow_command;
-       Protocol.read_page_command; 24L; 16L]) in
+       Protocol.read_page_command; 24L; 16L; Protocol.pair_command; Protocol.unpair_command; Int64.of_int Protocol.pair_size]) in
   check (Native.abi () = expected) "ocaml protocol differs from the kernel uapi";
   let buffer = Bytes.make Protocol.probe_size '\000' in
   Bytes.set_int32_le buffer 0 1l;

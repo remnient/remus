@@ -61,7 +61,8 @@ CAMLprim value remus_device_abi(value unit) {
     sizeof(struct remus_capability), sizeof(struct remus_control), sizeof(struct remus_cpu_status),
     sizeof(struct remus_probe), sizeof(struct remus_start), sizeof(struct remus_status), sizeof(struct remus_shadow_request),
     REMUS_IOCTL_PROBE, REMUS_IOCTL_START, REMUS_IOCTL_STOP, REMUS_IOCTL_STATUS, REMUS_IOCTL_SHADOW, REMUS_IOCTL_UNSHADOW,
-    REMUS_IOCTL_READ_PAGE, sizeof(struct remus_vmcall_command), sizeof(struct remus_root_parameters)
+    REMUS_IOCTL_READ_PAGE, sizeof(struct remus_vmcall_command), sizeof(struct remus_root_parameters),
+    REMUS_IOCTL_PAIR, REMUS_IOCTL_UNPAIR, sizeof(struct remus_pair)
   };
   size_t count = sizeof(values) / sizeof(values[0]);
   result = caml_alloc(count, 0);

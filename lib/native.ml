@@ -75,9 +75,7 @@ let read_page device ~pid ~address : Protocol.page =
   { physical_address = result.physical_address; process_cr3 = result.process_cr3; contents = result.original }
 
 let unhook device hook =
-  let remove id = try unshadow device id with Unix.Unix_error (Unix.ENOENT, _, _) -> () in
-  remove hook.target_id;
-  remove hook.trampoline_id
+  ioctl device Protocol.unpair_command (Protocol.encode_unpair hook.target_id hook.trampoline_id)
 
 let hook device ~pid ~target ~replacement ~trampoline_address =
   let source = read_page device ~pid ~address:target in
@@ -91,22 +89,14 @@ let hook device ~pid ~target ~replacement ~trampoline_address =
   if offset + Bytes.length plan.trampoline > 4096 then invalid_arg "trampoline crosses a page boundary";
   let payload = Bytes.copy destination.contents in
   Bytes.blit plan.trampoline 0 payload offset (Bytes.length plan.trampoline);
-  let trampoline = shadow device ~pid ~address:trampoline_address payload in
-  let target_id = ref None in
-  try
-    if trampoline.original <> destination.contents then failwith "trampoline mapping changed during registration";
-    let target_page = shadow device ~pid ~address:target plan.execution_page in
-    target_id := Some target_page.id;
-    if target_page.original <> source.contents then failwith "target mapping changed during registration";
-    { target_id = target_page.id; trampoline_id = trampoline.id; trampoline_address }
-  with error ->
-    (try
-       Option.iter (unshadow device) !target_id;
-       unshadow device trampoline.id
-     with cleanup ->
-       failwith (Printf.sprintf "hook rollback failed; target_id=%s trampoline_id=%d: %s"
-           (Option.fold ~none:"none" ~some:string_of_int !target_id) trampoline.id (Printexc.to_string cleanup)));
-    raise error
+  let buffer = Protocol.encode_pair ~pid (trampoline_address, payload) (target, plan.execution_page) in
+  ioctl device Protocol.pair_command buffer;
+  let trampoline, target_page = Protocol.decode_pair buffer in
+  let hook = { target_id = target_page.id; trampoline_id = trampoline.id; trampoline_address } in
+  if trampoline.original <> destination.contents || target_page.original <> source.contents then (
+    unhook device hook;
+    failwith "hook mappings changed during registration");
+  hook
 
 let constant_function result =
   let page = Bytes.make 4096 '\x90' in
