@@ -5,6 +5,7 @@ type observation =
   | Readback of { name : string; unchanged : bool }
 
 val with_device : ?path:string -> (t -> 'a) -> 'a
+val with_pidfd : pid:int -> (Unix.file_descr -> 'a) -> 'a
 val abi : unit -> int64 array
 val probe : t -> Protocol.probe
 val status : t -> Protocol.status

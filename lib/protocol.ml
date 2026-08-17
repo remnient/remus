@@ -1,4 +1,4 @@
-let version = 1
+let version = 2
 let max_cpus = 64
 let max_shadows = 128
 let probe_size = 16 + max_cpus * 128
@@ -119,7 +119,7 @@ let decode_status bytes : status =
   check_cpus (fun (cpu : cpu_status) -> cpu.cpu) cpus;
   { active = uint32 bytes 8 <> 0; shadows = uint32 bytes 12; cpus }
 
-let encode_shadow ~pid ~address payload =
+let encode_shadow ?pidfd ~pid ~address payload =
   if pid < 0 || pid > 0x7fff_ffff then invalid_arg "native process id";
   if not (Bits.canonical address) then invalid_arg "noncanonical shadow address";
   if Bytes.length payload <> 4096 then invalid_arg "shadow payload must be exactly 4096 bytes";
@@ -127,6 +127,9 @@ let encode_shadow ~pid ~address payload =
   Bytes.set_int32_le bytes 0 (Int32.of_int version);
   Bytes.set_int32_le bytes 4 (Int32.of_int pid);
   Bytes.set_int64_le bytes 8 address;
+  Option.iter (fun fd ->
+      if pid = 0 || fd < 0 || fd >= 0x7fff_ffff then invalid_arg "native pidfd";
+      Bytes.set_int32_le bytes 20 (Int32.of_int (fd + 1))) pidfd;
   Bytes.blit payload 0 bytes 40 4096;
   bytes
 
@@ -137,12 +140,12 @@ let decode_shadow bytes =
   { id; physical_address = Bytes.get_int64_le bytes 24;
     process_cr3 = Bytes.get_int64_le bytes 32; original = Bytes.sub bytes 40 4096 }
 
-let encode_pair ~pid (first, first_page) (second, second_page) =
+let encode_pair ?pidfd ~pid (first, first_page) (second, second_page) =
   let bytes = Bytes.make pair_size '\000' in
   Bytes.set_int32_le bytes 0 (Int32.of_int version);
   Bytes.set_int32_le bytes 4 2l;
   List.iteri (fun index (address, page) ->
-      Bytes.blit (encode_shadow ~pid ~address page) 0 bytes (8 + index * shadow_size) shadow_size)
+      Bytes.blit (encode_shadow ?pidfd ~pid ~address page) 0 bytes (8 + index * shadow_size) shadow_size)
     [first, first_page; second, second_page];
   bytes
 

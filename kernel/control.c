@@ -13,6 +13,8 @@
 #include <linux/suspend.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
+#include <linux/file.h>
+#include <linux/magic.h>
 #include "remus.h"
 
 struct remus_shadow remus_shadows[REMUS_MAX_SHADOWS];
@@ -147,12 +149,27 @@ out:
 }
 
 static int pin_target(struct remus_shadow *shadow, struct remus_shadow_request *request, bool read_only) {
-  if (request->version != REMUS_ABI_VERSION || request->reserved) return -EINVAL;
+  if (request->version != REMUS_ABI_VERSION || (!request->pid && request->pidfd)) return -EINVAL;
   if (request->pid) {
     struct pid *pid = find_get_pid(request->pid);
-    struct task_struct *task = pid ? get_pid_task(pid, PIDTYPE_PID) : NULL;
+    struct task_struct *task;
     int locked = 1;
     long pinned;
+    if (request->pidfd) {
+      struct file *file = fget(request->pidfd - 1);
+      bool matches = false;
+      if (!file) { if (pid) put_pid(pid); return -EBADF; }
+#ifdef PID_FS_MAGIC
+      if (file_inode(file)->i_sb->s_magic == PID_FS_MAGIC)
+        matches = pid && file_inode(file)->i_private == pid;
+#endif
+      if (file_inode(file)->i_sb->s_magic == ANON_INODE_FS_MAGIC
+          && !strcmp(file->f_path.dentry->d_name.name, "[pidfd]"))
+        matches = pid && file->private_data == pid;
+      fput(file);
+      if (!matches) { if (pid) put_pid(pid); return -ESTALE; }
+    }
+    task = pid ? get_pid_task(pid, PIDTYPE_PID) : NULL;
     if (pid) put_pid(pid);
     if (!task) return -ESRCH;
     shadow->mm = get_task_mm(task);

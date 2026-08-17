@@ -4,13 +4,15 @@ let check condition message = if not condition then failwith message
 
 let response size stride second =
   let bytes = Bytes.make size '\000' in
-  Bytes.set_int32_le bytes 0 1l;
+  Bytes.set_int32_le bytes 0 (Int32.of_int Protocol.version);
   Bytes.set_int32_le bytes 4 2l;
   Bytes.set_int32_le bytes 16 3l;
   Bytes.set_int32_le bytes (16 + stride) second;
   bytes
 
 let () =
+  let target = Protocol.encode_shadow ~pidfd:0 ~pid:1 ~address:0L (Bytes.make 4096 '\000') in
+  check (Protocol.uint32 target 20 = 1) "pidfd zero was confused with a numeric pid target";
   let first = Bytes.make 4096 '\x41' and second = Bytes.make 4096 '\x42' in
   let pair = Protocol.encode_pair ~pid:7 (0x1000L, first) (0x2000L, second) in
   Bytes.set_int32_le pair (8 + 16) 1l;

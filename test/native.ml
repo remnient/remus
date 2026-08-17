@@ -11,7 +11,7 @@ let test_abi () =
        Protocol.read_page_command; 24L; 16L; Protocol.pair_command; Protocol.unpair_command; Int64.of_int Protocol.pair_size]) in
   check (Native.abi () = expected) "ocaml protocol differs from the kernel uapi";
   let buffer = Bytes.make Protocol.probe_size '\000' in
-  Bytes.set_int32_le buffer 0 1l;
+  Bytes.set_int32_le buffer 0 (Int32.of_int Protocol.version);
   Bytes.set_int32_le buffer 4 1l;
   Bytes.set_int32_le buffer 16 7l;
   Bytes.set_int32_le buffer 20 3l;
@@ -60,7 +60,7 @@ let test_control_plan () =
 
 let test_status_and_shadow () =
   let status = Bytes.make Protocol.status_size '\000' in
-  Bytes.set_int32_le status 0 1l;
+  Bytes.set_int32_le status 0 (Int32.of_int Protocol.version);
   Bytes.set_int32_le status 4 1l;
   Bytes.set_int32_le status 8 1l;
   Bytes.set_int32_le status 16 7l;
@@ -91,9 +91,20 @@ let test_hardware () =
     with Unix.Unix_error (Unix.EACCES, _, _) | Unix.Unix_error (Unix.EPERM, _, _) ->
       print_endline "skip native vmx execution: device access requires CAP_SYS_RAWIO"
 
+let test_pidfd () =
+  let saved = ref None in
+  (try Native.with_pidfd ~pid:(Unix.getpid ()) (fun fd ->
+      ignore (Unix.fstat fd);
+      saved := Some fd;
+      raise Exit) with Exit -> ());
+  match !saved with
+  | None -> failwith "pidfd callback was not run"
+  | Some fd -> check (try ignore (Unix.fstat fd); false with Unix.Unix_error (Unix.EBADF, _, _) -> true)
+      "pidfd leaked after callback failure"
+
 let () =
   List.iter (fun (name, run) -> run (); Printf.printf "ok %s\n%!" name)
-    ["native kernel abi", test_abi; "native vmcs plan", test_control_plan;
+    ["native pidfd lifetime", test_pidfd; "native kernel abi", test_abi; "native vmcs plan", test_control_plan;
      "native status and shadow protocol", test_status_and_shadow;
      "native executable fixture", Native.selftest_fixture;
      "native relocated call execution", Native.selftest_trampoline];

@@ -15,6 +15,16 @@ external fixture_close : fixture -> unit = "remus_fixture_close"
 external fixture_update : fixture -> bytes -> unit = "remus_fixture_update"
 external affinity_get : unit -> int array = "remus_affinity_get"
 external affinity_set : int array -> unit = "remus_affinity_set"
+external pidfd_open : int -> Unix.file_descr = "remus_pidfd_open"
+external descriptor : Unix.file_descr -> int = "remus_descriptor"
+
+let with_pidfd ~pid callback =
+  let fd = pidfd_open pid in
+  Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> callback fd)
+
+let with_target pid callback =
+  if pid = 0 then callback None
+  else with_pidfd ~pid (fun fd -> callback (Some (descriptor fd)))
 
 let available_cpus () = Array.to_list (affinity_get ())
 
@@ -58,9 +68,10 @@ let start device controls =
 let stop device = ioctl device Protocol.stop_command Bytes.empty
 
 let shadow device ~pid ~address payload =
-  let buffer = Protocol.encode_shadow ~pid ~address payload in
+  with_target pid (fun pidfd ->
+  let buffer = Protocol.encode_shadow ?pidfd ~pid ~address payload in
   ioctl device Protocol.shadow_command buffer;
-  Protocol.decode_shadow buffer
+  Protocol.decode_shadow buffer)
 
 let unshadow device id =
   if id < 0 || id >= Protocol.max_shadows then invalid_arg "native shadow id";
@@ -68,18 +79,22 @@ let unshadow device id =
   Bytes.set_int32_le buffer 0 (Int32.of_int id);
   ioctl device Protocol.unshadow_command buffer
 
-let read_page device ~pid ~address : Protocol.page =
-  let buffer = Protocol.encode_shadow ~pid ~address (Bytes.make 4096 '\000') in
+let read_page_at device ?pidfd ~pid ~address () : Protocol.page =
+  let buffer = Protocol.encode_shadow ?pidfd ~pid ~address (Bytes.make 4096 '\000') in
   ioctl device Protocol.read_page_command buffer;
   let result = Protocol.decode_shadow buffer in
   { physical_address = result.physical_address; process_cr3 = result.process_cr3; contents = result.original }
+
+let read_page device ~pid ~address =
+  with_target pid (fun pidfd -> read_page_at device ?pidfd ~pid ~address ())
 
 let unhook device hook =
   ioctl device Protocol.unpair_command (Protocol.encode_unpair hook.target_id hook.trampoline_id)
 
 let hook device ~pid ~target ~replacement ~trampoline_address =
-  let source = read_page device ~pid ~address:target in
-  let destination = read_page device ~pid ~address:trampoline_address in
+  with_target pid (fun pidfd ->
+  let source = read_page_at device ?pidfd ~pid ~address:target () in
+  let destination = read_page_at device ?pidfd ~pid ~address:trampoline_address () in
   if source.physical_address = destination.physical_address then
     invalid_arg "hook and trampoline require different physical pages";
   let plan = match Hook.build ~page:source.contents ~target ~replacement ~trampoline_address with
@@ -89,14 +104,14 @@ let hook device ~pid ~target ~replacement ~trampoline_address =
   if offset + Bytes.length plan.trampoline > 4096 then invalid_arg "trampoline crosses a page boundary";
   let payload = Bytes.copy destination.contents in
   Bytes.blit plan.trampoline 0 payload offset (Bytes.length plan.trampoline);
-  let buffer = Protocol.encode_pair ~pid (trampoline_address, payload) (target, plan.execution_page) in
+  let buffer = Protocol.encode_pair ?pidfd ~pid (trampoline_address, payload) (target, plan.execution_page) in
   ioctl device Protocol.pair_command buffer;
   let trampoline, target_page = Protocol.decode_pair buffer in
   let hook = { target_id = target_page.id; trampoline_id = trampoline.id; trampoline_address } in
   if trampoline.original <> destination.contents || target_page.original <> source.contents then (
     unhook device hook;
     failwith "hook mappings changed during registration");
-  hook
+  hook)
 
 let constant_function result =
   let page = Bytes.make 4096 '\x90' in

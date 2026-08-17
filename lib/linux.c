@@ -15,10 +15,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/syscall.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 #include "protocol.h"
+
+CAMLprim value remus_pidfd_open(value pid) {
+  CAMLparam1(pid);
+  int fd = syscall(SYS_pidfd_open, Long_val(pid), 0);
+  if (fd < 0) caml_uerror("pidfd_open", Nothing);
+  CAMLreturn(Val_int(fd));
+}
+
+CAMLprim value remus_descriptor(value fd) {
+  return Val_int(Int_val(fd));
+}
 
 CAMLprim value remus_affinity_get(value unit) {
   CAMLparam1(unit);

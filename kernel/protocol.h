@@ -4,7 +4,7 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#define REMUS_ABI_VERSION 1
+#define REMUS_ABI_VERSION 2
 #define REMUS_MAX_CPUS 64
 #define REMUS_MAX_SHADOWS 128
 #define REMUS_VMCALL_KEY 0xdeaddeadUL
@@ -97,7 +97,7 @@ struct remus_shadow_request {
   __u32 pid;
   __u64 address;
   __u32 id;
-  __u32 reserved;
+  __u32 pidfd;
   __u64 physical_address;
   __u64 process_cr3;
   __u8 page[4096];
