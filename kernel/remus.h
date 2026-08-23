@@ -4,6 +4,7 @@
 #include <linux/mm.h>
 #include <linux/percpu.h>
 #include <linux/sizes.h>
+#include <linux/mmu_notifier.h>
 #include <asm/desc.h>
 #include <asm/msr.h>
 #include <asm/vmx.h>
@@ -91,6 +92,11 @@ struct remus_shadow {
   u64 address;
   u64 process_cr3;
   bool enabled;
+  bool watching;
+  bool invalidated;
+  unsigned int peer;
+  unsigned long virtual_address;
+  struct mmu_notifier notifier;
 };
 
 struct remus_ram_range { u64 first; u64 last; };

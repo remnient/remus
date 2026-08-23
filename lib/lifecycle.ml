@@ -82,6 +82,6 @@ let native device = {
   start = Native.start device;
   stop = (fun () -> Native.stop device);
   shadow_test = (fun observe -> Native.selftest ~observe device);
-  hook_test = (fun observe -> Native.selftest_hook ~observe device);
+  hook_test = (fun observe -> Native.selftest_hook ~observe device; Native.selftest_mapping device);
   post_stop_test = (fun () -> Native.selftest_fixture (); Native.selftest_trampoline ());
 }

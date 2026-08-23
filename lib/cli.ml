@@ -85,6 +85,7 @@ let run arguments =
       | ["selftest"] ->
           Native.selftest ~observe:Native.print_observation device;
           Native.selftest_hook ~observe:Native.print_observation device;
+          Native.selftest_mapping device;
           print_endline "native ept selftest passed: target execution, original reads, process isolation, cr3 switching, hooks, trampolines and removal";
           print_status (Native.status device)
       | ["selftest-no-vmx"] ->

@@ -123,6 +123,25 @@ let with_fixture page callback =
   let fixture = fixture_create page in
   Fun.protect ~finally:(fun () -> fixture_close fixture) (fun () -> callback fixture)
 
+let selftest_mapping device =
+  let initial = (status device).shadows in
+  with_fixture (constant_function 42) (fun target ->
+      with_fixture (constant_function 99) (fun replacement ->
+          with_fixture (constant_function 0) (fun trampoline ->
+              let installed = hook device ~pid:(Unix.getpid ()) ~target:(fixture_address target)
+                  ~replacement:(fixture_address replacement) ~trampoline_address:(fixture_address trampoline) in
+              Fun.protect ~finally:(fun () -> unhook device installed) (fun () ->
+                  if fixture_call target <> 99 then failwith "mapping fixture hook did not execute";
+                  fixture_close trampoline;
+                  if fixture_call target <> 42 then failwith "invalidated trampoline left its target hooked";
+                  let deadline = Runner.monotonic_clock () +. 2. in
+                  let rec wait () =
+                    if (status device).shadows <> initial then (
+                      if Runner.monotonic_clock () >= deadline then failwith "invalidated shadows were not reclaimed";
+                      ignore (Unix.select [] [] [] 0.001);
+                      wait ()) in
+                  wait ()))))
+
 let relative_call_page ~target ~callee =
   let page = Bytes.make 4096 '\x90' in
   Bytes.blit_string "\xf3\x0f\x1e\xfa\x48\x83\xec\x08\xe8\x00\x00\x00\x00\x48\x83\xc4\x08\xc3" 0 page 0 18;

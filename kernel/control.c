@@ -19,11 +19,54 @@
 
 struct remus_shadow remus_shadows[REMUS_MAX_SHADOWS];
 static DEFINE_MUTEX(control_lock);
+static DEFINE_MUTEX(shadow_lock);
 static bool active;
 static struct remus_cpu_status last_status[REMUS_MAX_CPUS];
 static unsigned int last_count;
 struct remus_ram_range remus_ram_ranges[256];
 unsigned int remus_ram_count;
+
+static int refresh_cpu(void *argument);
+static void reap_shadows(struct work_struct *work);
+static DECLARE_WORK(reap_work, reap_shadows);
+
+static void invalidate_shadow(struct remus_shadow *shadow) {
+  bool enabled = shadow->enabled;
+  unsigned int slot = shadow - remus_shadows;
+  shadow->invalidated = true;
+  smp_store_release(&shadow->enabled, false);
+  if (shadow->peer < REMUS_MAX_SHADOWS && remus_shadows[shadow->peer].peer == slot) {
+    struct remus_shadow *peer = &remus_shadows[shadow->peer];
+    peer->invalidated = true;
+    enabled |= peer->enabled;
+    smp_store_release(&peer->enabled, false);
+  }
+  if (enabled && active && stop_machine(refresh_cpu, NULL, cpu_online_mask))
+    panic("remus: cannot retire an invalidated shadow mapping");
+  if (shadow->watching) schedule_work(&reap_work);
+}
+
+static int invalidate_range(struct mmu_notifier *notifier, const struct mmu_notifier_range *range) {
+  struct remus_shadow *shadow = container_of(notifier, struct remus_shadow, notifier);
+  if (shadow->virtual_address >= range->end || shadow->virtual_address + PAGE_SIZE <= range->start) return 0;
+  if (!mmu_notifier_range_blockable(range)) return -EAGAIN;
+  mutex_lock(&shadow_lock);
+  invalidate_shadow(shadow);
+  mutex_unlock(&shadow_lock);
+  return 0;
+}
+
+static void release_mapping(struct mmu_notifier *notifier, struct mm_struct *mm) {
+  struct remus_shadow *shadow = container_of(notifier, struct remus_shadow, notifier);
+  mutex_lock(&shadow_lock);
+  invalidate_shadow(shadow);
+  mutex_unlock(&shadow_lock);
+}
+
+static const struct mmu_notifier_ops remus_mmu_ops = {
+  .invalidate_range_start = invalidate_range,
+  .release = release_mapping
+};
 
 static int ram_above_limit(struct resource *resource, void *argument) {
   return resource->end >= REMUS_EPT_LIMIT ? -ERANGE : 0;
@@ -36,11 +79,22 @@ static int record_ram(struct resource *resource, void *argument) {
 }
 
 static void release_shadow(struct remus_shadow *shadow) {
+  bool watching = shadow->watching;
+  if (watching || shadow->payload) {
+    mutex_lock(&shadow_lock);
+    shadow->watching = false;
+    smp_store_release(&shadow->enabled, false);
+    if (shadow->peer < REMUS_MAX_SHADOWS && remus_shadows[shadow->peer].peer == shadow - remus_shadows)
+      remus_shadows[shadow->peer].peer = REMUS_MAX_SHADOWS;
+    shadow->peer = REMUS_MAX_SHADOWS;
+    mutex_unlock(&shadow_lock);
+  }
+  if (watching) mmu_notifier_unregister(&shadow->notifier, shadow->mm);
   if (shadow->page) {
     if (shadow->mm) unpin_user_page(shadow->page);
     else put_page(shadow->page);
   }
-  if (shadow->mm) mmput(shadow->mm);
+  if (shadow->mm && !watching) mmput(shadow->mm);
   if (shadow->payload) free_page((unsigned long)shadow->payload);
   memset(shadow, 0, sizeof(*shadow));
 }
@@ -62,13 +116,16 @@ static bool any_active(void) {
 static void release_cpus(void) {
   unsigned int id, i;
   last_count = 0;
+  mutex_lock(&shadow_lock);
+  for (i = 0; i < REMUS_MAX_SHADOWS; i++) smp_store_release(&remus_shadows[i].enabled, false);
+  mutex_unlock(&shadow_lock);
+  for (i = 0; i < REMUS_MAX_SHADOWS; i++) release_shadow(&remus_shadows[i]);
   for_each_online_cpu(id) {
     struct remus_cpu *cpu = per_cpu(remus_cpu_data, id);
     if (cpu && last_count < REMUS_MAX_CPUS) last_status[last_count++] = cpu->status;
     per_cpu(remus_cpu_data, id) = NULL;
     remus_free_cpu(cpu);
   }
-  for (i = 0; i < REMUS_MAX_SHADOWS; i++) release_shadow(&remus_shadows[i]);
 }
 
 static int stop_locked(void) {
@@ -175,10 +232,19 @@ static int pin_target(struct remus_shadow *shadow, struct remus_shadow_request *
     shadow->mm = get_task_mm(task);
     put_task_struct(task);
     if (!shadow->mm) return -ESRCH;
+    if (!read_only) {
+      int error;
+      shadow->virtual_address = request->address & PAGE_MASK;
+      shadow->notifier.ops = &remus_mmu_ops;
+      error = mmu_notifier_register(&shadow->notifier, shadow->mm);
+      if (error) return error;
+      shadow->watching = true;
+    }
     mmap_read_lock(shadow->mm);
     pinned = pin_user_pages_remote(shadow->mm, request->address & PAGE_MASK, 1,
                                    FOLL_LONGTERM, &shadow->page, &locked);
     if (locked) mmap_read_unlock(shadow->mm);
+    if (shadow->watching) mmput(shadow->mm);
     if (pinned != 1) return pinned < 0 ? pinned : -EFAULT;
     shadow->process_cr3 = __pa(shadow->mm->pgd);
   } else {
@@ -210,6 +276,7 @@ static int prepare_shadow(struct remus_shadow_request *request, unsigned int slo
   struct remus_shadow *shadow = &remus_shadows[slot];
   unsigned int id;
   int error;
+  shadow->peer = REMUS_MAX_SHADOWS;
   shadow->payload = (void *)get_zeroed_page(GFP_KERNEL);
   if (!shadow->payload) return -ENOMEM;
   memcpy(shadow->payload, request->page, PAGE_SIZE);
@@ -242,11 +309,20 @@ static int install_shadows(struct remus_shadow_request *requests, unsigned int c
     error = prepare_shadow(&requests[i], slot);
     if (error) goto release;
   }
+  mutex_lock(&shadow_lock);
+  for (i = 0; i < count; i++)
+    if (remus_shadows[slots[i]].invalidated) { mutex_unlock(&shadow_lock); error = -ESTALE; goto release; }
+  if (count == 2) {
+    remus_shadows[slots[0]].peer = slots[1];
+    remus_shadows[slots[1]].peer = slots[0];
+  }
   for (i = 0; i < count; i++) smp_store_release(&remus_shadows[slots[i]].enabled, true);
   published = true;
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
+  mutex_unlock(&shadow_lock);
   if (!error) return 0;
 release:
+  mutex_lock(&shadow_lock);
   for (i = 0; i < count; i++)
     if (slots[i] < REMUS_MAX_SHADOWS) smp_store_release(&remus_shadows[slots[i]].enabled, false);
   rollback = stop_machine(refresh_cpu, NULL, cpu_online_mask);
@@ -254,8 +330,10 @@ release:
     for (i = 0; i < count; i++)
       if (slots[i] < REMUS_MAX_SHADOWS) smp_store_release(&remus_shadows[slots[i]].enabled, published);
     pr_err("remus: shadow transaction rollback failed: %d\n", rollback);
+    mutex_unlock(&shadow_lock);
     return rollback;
   }
+  mutex_unlock(&shadow_lock);
   for (i = 0; i < count; i++) if (slots[i] < REMUS_MAX_SHADOWS) release_shadow(&remus_shadows[slots[i]]);
   return error;
 }
@@ -269,16 +347,36 @@ static int remove_shadows(const u32 *slots, unsigned int count) {
   for (i = 0; i < count; i++) {
     if (slots[i] >= REMUS_MAX_SHADOWS || (i && slots[i] == slots[0])) return -EINVAL;
     if (count == 1 && !remus_shadows[slots[i]].page) return -ENOENT;
-    enabled[i] = remus_shadows[slots[i]].enabled;
   }
+  mutex_lock(&shadow_lock);
+  for (i = 0; i < count; i++) enabled[i] = remus_shadows[slots[i]].enabled;
   for (i = 0; i < count; i++) smp_store_release(&remus_shadows[slots[i]].enabled, false);
   error = stop_machine(refresh_cpu, NULL, cpu_online_mask);
   if (error) {
     for (i = 0; i < count; i++) smp_store_release(&remus_shadows[slots[i]].enabled, enabled[i]);
+    mutex_unlock(&shadow_lock);
     return error;
   }
+  mutex_unlock(&shadow_lock);
   for (i = 0; i < count; i++) release_shadow(&remus_shadows[slots[i]]);
   return 0;
+}
+
+static void reap_shadows(struct work_struct *work) {
+  unsigned int i;
+  mutex_lock(&control_lock);
+  for (i = 0; i < REMUS_MAX_SHADOWS; i++) {
+    u32 slots[2];
+    bool invalidated;
+    mutex_lock(&shadow_lock);
+    slots[0] = i;
+    slots[1] = remus_shadows[i].peer;
+    invalidated = remus_shadows[i].invalidated && remus_shadows[i].payload;
+    mutex_unlock(&shadow_lock);
+    if (invalidated)
+      remove_shadows(slots, slots[1] < REMUS_MAX_SHADOWS ? 2 : 1);
+  }
+  mutex_unlock(&control_lock);
 }
 
 static long remus_ioctl(struct file *file, unsigned int command, unsigned long user) {
@@ -403,6 +501,7 @@ misc:
 }
 
 static void __exit remus_exit(void) {
+  cancel_work_sync(&reap_work);
   unregister_pm_notifier(&power_notifier);
   unregister_reboot_notifier(&reboot_notifier);
   misc_deregister(&remus_device);
