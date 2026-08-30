@@ -419,13 +419,18 @@ CAMLprim value remus_decode(value code, value offset, value address) {
   }
   cs_x86 *x86 = &instruction->detail->x86;
   int relative_call = 0;
+  int relative_memory = 0, displacement = 0;
   int unsupported = cs_insn_group(decoder, instruction, CS_GRP_JUMP);
   uint64_t destination = 0;
   for (int i = 0; i < x86->op_count; i++) {
     cs_x86_op *operand = &x86->operands[i];
-    if (operand->type == X86_OP_MEM
-        && (operand->mem.base == X86_REG_RIP || operand->mem.base == X86_REG_EIP))
-      unsupported = 1;
+    if (operand->type == X86_OP_MEM && operand->mem.base == X86_REG_EIP) unsupported = 1;
+    if (operand->type == X86_OP_MEM && operand->mem.base == X86_REG_RIP) {
+      if (x86->encoding.disp_size != 4) unsupported = 1;
+      relative_memory = 1;
+      displacement = x86->encoding.disp_offset;
+      destination = instruction->address + instruction->size + operand->mem.disp;
+    }
     if (instruction->id == X86_INS_CALL && operand->type == X86_OP_IMM) {
       relative_call = 1;
       destination = operand->imm;
@@ -436,9 +441,10 @@ CAMLprim value remus_decode(value code, value offset, value address) {
   cs_free(instruction, count);
   cs_close(&decoder);
   target = caml_copy_int64(destination);
-  result = caml_alloc_small(3, 0);
+  result = caml_alloc_small(4, 0);
   Field(result, 0) = Val_int(length);
-  Field(result, 1) = Val_int(unsupported ? 2 : relative_call ? 1 : 0);
+  Field(result, 1) = Val_int(unsupported ? 2 : relative_memory ? 3 : relative_call ? 1 : 0);
   Field(result, 2) = target;
+  Field(result, 3) = Val_int(displacement);
   CAMLreturn(result);
 }

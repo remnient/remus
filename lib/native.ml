@@ -166,6 +166,22 @@ let selftest_trampoline () =
               if fixture_call caller <> 42 || fixture_call trampoline <> 42 then
                 failwith "relocated call changed the return value or return address")))
 
+let selftest_relative () =
+  let page = Bytes.make 4096 '\x90' in
+  Bytes.blit_string "\xf3\x0f\x1e\xfa\x8b\x05\xf6\x00\x00\x00\xc3" 0 page 0 11;
+  Bytes.set_int32_le page 256 42l;
+  with_fixture page (fun source ->
+      with_fixture (constant_function 0) (fun trampoline ->
+          let plan = match Hook.build ~page ~target:(fixture_address source)
+                ~replacement:(fixture_address trampoline) ~trampoline_address:(fixture_address trampoline) with
+            | Ok plan -> plan
+            | Error message -> failwith message in
+          let payload = Bytes.make 4096 '\x90' in
+          Bytes.blit plan.trampoline 0 payload 0 (Bytes.length plan.trampoline);
+          fixture_update trampoline payload;
+          if fixture_call source <> 42 || fixture_call trampoline <> 42 then
+            failwith "relocated rip-relative load changed its result"))
+
 let selftest_no_vmx device =
   let capabilities = probe device in
   if capabilities.active || List.exists (fun (cpu : Protocol.capability) -> cpu.flags land 1 <> 0) capabilities.cpus then

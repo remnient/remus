@@ -18,6 +18,7 @@ val hook : t -> pid:int -> target:int64 -> replacement:int64 -> trampoline_addre
 val unhook : t -> hook -> unit
 val selftest_fixture : unit -> unit
 val selftest_trampoline : unit -> unit
+val selftest_relative : unit -> unit
 val selftest_mapping : t -> unit
 val available_cpus : unit -> int list
 val with_cpu : int -> (unit -> 'a) -> 'a

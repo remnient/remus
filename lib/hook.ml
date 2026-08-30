@@ -1,15 +1,16 @@
-type instruction = Copy of int | Call of int * int64 | Unsupported of int
+type instruction = Copy of int | Call of int * int64 | Relative of int * int * int64 | Unsupported of int
 type plan = { execution_page : bytes; trampoline : bytes; displaced_bytes : int }
 type request = { target : int64; replacement : int64 }
 type t = { mutable pending : request list; mutable count : int }
 
-external decode_native : bytes -> int -> int64 -> int * int * int64 = "remus_decode"
+external decode_native : bytes -> int -> int64 -> int * int * int64 * int = "remus_decode"
 
 let decode code ~offset ~address =
-  let length, kind, destination = decode_native code offset address in
+  let length, kind, destination, displacement = decode_native code offset address in
   match kind with
   | 0 -> Copy length
   | 1 -> Call (length, destination)
+  | 3 -> Relative (length, displacement, destination)
   | _ -> Unsupported length
 
 let absolute_jump destination =
@@ -37,7 +38,7 @@ let build ~page ~target ~replacement ~trampoline_address =
         let instruction = decode page ~offset:(start + consumed) ~address in
         match instruction with
         | Unsupported _ -> Error "hook prologue contains a branch or pc-relative operand"
-        | Copy length | Call (length, _) ->
+        | Copy length | Call (length, _) | Relative (length, _, _) ->
             if length < 1 || length > 15 || start + consumed + length > 4096 then
               Error "invalid or truncated hook instruction"
             else collect (consumed + length) ((consumed, instruction) :: instructions)
@@ -56,6 +57,14 @@ let build ~page ~target ~replacement ~trampoline_address =
             List.iter (fun (offset, instruction) ->
                 match instruction with
                 | Copy length -> Buffer.add_subbytes trampoline page (start + offset) length
+                | Relative (length, displacement, destination) ->
+                    let next = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + length)) in
+                    let delta = Int64.sub destination next in
+                    if not (Bits.canonical destination) || delta <> Int64.of_int32 (Int64.to_int32 delta) then
+                      failwith "rip-relative operand exceeds relocated disp32 range";
+                    let code = Bytes.sub page (start + offset) length in
+                    Bytes.set_int32_le code displacement (Int64.to_int32 delta);
+                    Buffer.add_bytes trampoline code
                 | Call (_, destination) ->
                     let return_address = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + 31)) in
                     if not (Bits.canonical return_address) then failwith "noncanonical trampoline return address";

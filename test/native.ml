@@ -107,5 +107,6 @@ let () =
     ["native pidfd lifetime", test_pidfd; "native kernel abi", test_abi; "native vmcs plan", test_control_plan;
      "native status and shadow protocol", test_status_and_shadow;
      "native executable fixture", Native.selftest_fixture;
-     "native relocated call execution", Native.selftest_trampoline];
+     "native relocated call execution", Native.selftest_trampoline;
+     "native rip-relative load execution", Native.selftest_relative];
   test_hardware ()

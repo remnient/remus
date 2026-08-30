@@ -19,8 +19,10 @@ let test_hooks () =
   check (Bytes.get_int64_le plan.trampoline (Bytes.length plan.trampoline - 13) = 0x1010L)
     "trampoline returns after all displaced source instructions";
   Bytes.blit_string "\x48\x8b\x05\x00\x00\x00\x00" 0 page 0 7;
-  check (Result.is_error (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L))
-    "rip-relative loads are rejected";
+  let moved = get (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L) in
+  check (Bytes.get_int32_le moved.trampoline 3 = -8192l) "rip-relative load changed its source address";
+  check (Result.is_error (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x8000_0000_0000L))
+    "out-of-range rip-relative load was truncated";
   Bytes.set page 0 '\xeb';
   check (Result.is_error (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L))
     "relative branches are rejected";
