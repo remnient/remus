@@ -419,7 +419,7 @@ CAMLprim value remus_decode(value code, value offset, value address) {
   }
   cs_x86 *x86 = &instruction->detail->x86;
   int relative_call = 0;
-  int relative_memory = 0, displacement = 0;
+  int relative_memory = 0, displacement = 0, branch = 0;
   int unsupported = cs_insn_group(decoder, instruction, CS_GRP_JUMP);
   uint64_t destination = 0;
   for (int i = 0; i < x86->op_count; i++) {
@@ -435,7 +435,19 @@ CAMLprim value remus_decode(value code, value offset, value address) {
       relative_call = 1;
       destination = operand->imm;
     }
-    if (instruction->id == X86_INS_XBEGIN) unsupported = 1;
+    if (instruction->id == X86_INS_XBEGIN || instruction->id == X86_INS_LOOP
+        || instruction->id == X86_INS_LOOPE || instruction->id == X86_INS_LOOPNE
+        || instruction->id == X86_INS_JCXZ || instruction->id == X86_INS_JECXZ
+        || instruction->id == X86_INS_JRCXZ) unsupported = 1;
+    if (operand->type == X86_OP_IMM && cs_insn_group(decoder, instruction, CS_GRP_JUMP)) {
+      if (instruction->id == X86_INS_JMP && (x86->opcode[0] == 0xe9 || x86->opcode[0] == 0xeb)) branch = 4;
+      else if ((x86->opcode[0] & 0xf0) == 0x70) { branch = 5; displacement = x86->opcode[0] & 15; }
+      else if (x86->opcode[0] == 0x0f && (x86->opcode[1] & 0xf0) == 0x80) {
+        branch = 5;
+        displacement = x86->opcode[1] & 15;
+      }
+      if (branch) { unsupported = 0; destination = operand->imm; }
+    }
   }
   int length = instruction->size;
   cs_free(instruction, count);
@@ -443,7 +455,7 @@ CAMLprim value remus_decode(value code, value offset, value address) {
   target = caml_copy_int64(destination);
   result = caml_alloc_small(4, 0);
   Field(result, 0) = Val_int(length);
-  Field(result, 1) = Val_int(unsupported ? 2 : relative_memory ? 3 : relative_call ? 1 : 0);
+  Field(result, 1) = Val_int(unsupported ? 2 : branch ? branch : relative_memory ? 3 : relative_call ? 1 : 0);
   Field(result, 2) = target;
   Field(result, 3) = Val_int(displacement);
   CAMLreturn(result);

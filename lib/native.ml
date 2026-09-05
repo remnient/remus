@@ -182,6 +182,25 @@ let selftest_relative () =
           if fixture_call source <> 42 || fixture_call trampoline <> 42 then
             failwith "relocated rip-relative load changed its result"))
 
+let selftest_branches () =
+  List.iter (fun (code, expected) ->
+      let page = Bytes.make 4096 '\x90' in
+      Bytes.blit_string code 0 page 0 (String.length code);
+      with_fixture page (fun source ->
+          with_fixture (constant_function 0) (fun trampoline ->
+              let plan = match Hook.build ~page ~target:(fixture_address source)
+                    ~replacement:(fixture_address trampoline) ~trampoline_address:(fixture_address trampoline) with
+                | Ok plan -> plan
+                | Error message -> failwith message in
+              let payload = Bytes.make 4096 '\x90' in
+              Bytes.blit plan.trampoline 0 payload 0 (Bytes.length plan.trampoline);
+              fixture_update trampoline payload;
+              if fixture_call source <> expected || fixture_call trampoline <> expected then
+                failwith "relocated internal control flow changed its result")))
+    ["\x31\xc0\x74\x07\xb8\x63\x00\x00\x00\xc3\x90\xb8\x2a\x00\x00\x00\xc3", 42;
+     "\xb9\x03\x00\x00\x00\x31\xc0\xff\xc0\xff\xc9\x75\xfa\xc3", 3;
+     "\xe8\x06\x00\x00\x00\x83\xc0\x01\xc3\x90\x90\xb8\x29\x00\x00\x00\xc3", 42]
+
 let selftest_no_vmx device =
   let capabilities = probe device in
   if capabilities.active || List.exists (fun (cpu : Protocol.capability) -> cpu.flags land 1 <> 0) capabilities.cpus then

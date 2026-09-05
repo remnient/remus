@@ -19,6 +19,7 @@ val unhook : t -> hook -> unit
 val selftest_fixture : unit -> unit
 val selftest_trampoline : unit -> unit
 val selftest_relative : unit -> unit
+val selftest_branches : unit -> unit
 val selftest_mapping : t -> unit
 val available_cpus : unit -> int list
 val with_cpu : int -> (unit -> 'a) -> 'a

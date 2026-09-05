@@ -108,5 +108,6 @@ let () =
      "native status and shadow protocol", test_status_and_shadow;
      "native executable fixture", Native.selftest_fixture;
      "native relocated call execution", Native.selftest_trampoline;
-     "native rip-relative load execution", Native.selftest_relative];
+     "native rip-relative load execution", Native.selftest_relative;
+     "native internal branch execution", Native.selftest_branches];
   test_hardware ()

@@ -23,9 +23,12 @@ let test_hooks () =
   check (Bytes.get_int32_le moved.trampoline 3 = -8192l) "rip-relative load changed its source address";
   check (Result.is_error (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x8000_0000_0000L))
     "out-of-range rip-relative load was truncated";
-  Bytes.set page 0 '\xeb';
+  Bytes.blit_string "\xe2\xfe" 0 page 0 2;
   check (Result.is_error (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L))
-    "relative branches are rejected";
+    "unsupported loop encoding is rejected";
+  Bytes.blit_string "\xeb\xff" 0 page 0 2;
+  check (Result.is_error (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L))
+    "branch into an instruction was accepted";
   check (Result.is_error (Hook.build ~page ~target:0x1ff8L ~replacement:0x2000L ~trampoline_address:0x3000L))
     "page-crossing prologue is rejected";
   let queue = Hook.create () in
