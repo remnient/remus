@@ -109,13 +109,14 @@ static void *get_fixture(value handle) {
   return page;
 }
 
-CAMLprim value remus_fixture_create(value page) {
-  CAMLparam1(page);
+CAMLprim value remus_fixture_create(value page, value low) {
+  CAMLparam2(page, low);
   CAMLlocal1(handle);
   if (caml_string_length(page) != 4096) caml_invalid_argument("fixture page size");
   handle = caml_alloc_custom_mem(&fixture_operations, sizeof(void *), 4096);
   *(void **)Data_custom_val(handle) = NULL;
-  void *memory = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  int flags = MAP_PRIVATE | MAP_ANONYMOUS | (Bool_val(low) ? MAP_32BIT : 0);
+  void *memory = mmap(NULL, 4096, PROT_READ | PROT_WRITE, flags, -1, 0);
   if (memory == MAP_FAILED) caml_uerror("mmap fixture", Nothing);
   memcpy(memory, Bytes_val(page), 4096);
   if (mprotect(memory, 4096, PROT_READ | PROT_EXEC) < 0) {

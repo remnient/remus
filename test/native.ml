@@ -109,5 +109,6 @@ let () =
      "native executable fixture", Native.selftest_fixture;
      "native relocated call execution", Native.selftest_trampoline;
      "native rip-relative load execution", Native.selftest_relative;
-     "native internal branch execution", Native.selftest_branches];
+     "native internal branch execution", Native.selftest_branches;
+     "native far conditional execution", Native.selftest_far];
   test_hardware ()

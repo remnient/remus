@@ -59,8 +59,8 @@ let build ~page ~target ~replacement ~trampoline_address =
           let emitted = function
             | Copy length | Relative (length, _, _) -> length
             | Call _ -> 31
-            | Jump _ -> 5
-            | Conditional _ -> 6
+            | Jump _ -> 16
+            | Conditional _ -> 18
             | Unsupported _ -> assert false in
           let _, offsets = List.fold_left (fun (offset, offsets) (source, instruction) ->
               offset + emitted instruction, (source, offset) :: offsets) (0, []) instructions in
@@ -71,14 +71,24 @@ let build ~page ~target ~replacement ~trampoline_address =
               | None -> failwith "branch targets the middle of a displaced instruction"
             else destination in
             let trampoline = Buffer.create (consumed + 32) in
-            let branch prefix destination =
+            let branch condition destination =
               let destination = relocate destination in
-              let next = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + Bytes.length prefix)) in
+              if not (Bits.canonical destination) then failwith "noncanonical branch destination";
+              let length, reserved = match condition with None -> 5, 16 | Some _ -> 6, 18 in
+              let next = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + length)) in
               let delta = Int64.sub destination next in
-              if not (Bits.canonical destination) || delta <> Int64.of_int32 (Int64.to_int32 delta) then
-                failwith "relocated branch exceeds rel32 range";
-              Bytes.set_int32_le prefix (Bytes.length prefix - 4) (Int64.to_int32 delta);
-              Buffer.add_bytes trampoline prefix in
+              if delta = Int64.of_int32 (Int64.to_int32 delta) then (
+                let code = Bytes.make reserved '\x90' in
+                (match condition with
+                 | None -> Bytes.set code 0 '\xe9'
+                 | Some value -> Bytes.set code 0 '\x0f'; Bytes.set code 1 (Char.chr (0x80 + value)));
+                Bytes.set_int32_le code (length - 4) (Int64.to_int32 delta);
+                Buffer.add_bytes trampoline code)
+              else (
+                Option.iter (fun value ->
+                    Buffer.add_char trampoline (Char.chr (0x70 + (value lxor 1)));
+                    Buffer.add_char trampoline '\x10') condition;
+                Buffer.add_bytes trampoline (absolute_jump destination)) in
             List.iter (fun (offset, instruction) ->
                 match instruction with
                 | Copy length -> Buffer.add_subbytes trampoline page (start + offset) length
@@ -95,11 +105,8 @@ let build ~page ~target ~replacement ~trampoline_address =
                     let return_address = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + 31)) in
                     if not (Bits.canonical return_address) then failwith "noncanonical trampoline return address";
                     Buffer.add_bytes trampoline (absolute_call ~return_address destination)
-                | Jump (_, destination) -> branch (Bytes.of_string "\xe9\x00\x00\x00\x00") destination
-                | Conditional (_, condition, destination) ->
-                    let code = Bytes.of_string "\x0f\x80\x00\x00\x00\x00" in
-                    Bytes.set code 1 (Char.chr (0x80 + condition));
-                    branch code destination
+                | Jump (_, destination) -> branch None destination
+                | Conditional (_, condition, destination) -> branch (Some condition) destination
                 | Unsupported _ -> assert false) instructions;
             Buffer.add_bytes trampoline (absolute_jump finish);
             let execution_page = Bytes.copy page in

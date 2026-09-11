@@ -7,7 +7,7 @@ type observation =
 
 external ioctl : Unix.file_descr -> int64 -> bytes -> unit = "remus_device_ioctl"
 external abi : unit -> int64 array = "remus_device_abi"
-external fixture_create : bytes -> fixture = "remus_fixture_create"
+external fixture_create : bytes -> bool -> fixture = "remus_fixture_create"
 external fixture_address : fixture -> int64 = "remus_fixture_address"
 external fixture_call : fixture -> int = "remus_fixture_call"
 external fixture_read : fixture -> bytes = "remus_fixture_read"
@@ -119,8 +119,8 @@ let constant_function result =
   Bytes.set_int32_le page 5 (Int32.of_int result);
   page
 
-let with_fixture page callback =
-  let fixture = fixture_create page in
+let with_fixture ?(low = false) page callback =
+  let fixture = fixture_create page low in
   Fun.protect ~finally:(fun () -> fixture_close fixture) (fun () -> callback fixture)
 
 let selftest_mapping device =
@@ -201,6 +201,27 @@ let selftest_branches () =
      "\xb9\x03\x00\x00\x00\x31\xc0\xff\xc0\xff\xc9\x75\xfa\xc3", 3;
      "\xe8\x06\x00\x00\x00\x83\xc0\x01\xc3\x90\x90\xb8\x29\x00\x00\x00\xc3", 42]
 
+let selftest_far () =
+  List.iter (fun (opcode, expected) ->
+      let page = Bytes.make 4096 '\x90' in
+      Bytes.blit_string "\x31\xc0\x0f\x84\xf8\x00\x00\x00\xb8\x63\x00\x00\x00\xc3" 0 page 0 14;
+      Bytes.set page 3 (Char.chr opcode);
+      Bytes.blit (constant_function 42) 0 page 256 10;
+      with_fixture ~low:true page (fun source ->
+          with_fixture (constant_function 0) (fun trampoline ->
+              let distance = Int64.sub (fixture_address trampoline) (fixture_address source) in
+              if distance = Int64.of_int32 (Int64.to_int32 distance) then failwith "far fixture is within rel32 range";
+              let plan = match Hook.build ~page ~target:(fixture_address source)
+                    ~replacement:(fixture_address trampoline) ~trampoline_address:(fixture_address trampoline) with
+                | Ok plan -> plan
+                | Error message -> failwith message in
+              let payload = Bytes.make 4096 '\x90' in
+              Bytes.blit plan.trampoline 0 payload 0 (Bytes.length plan.trampoline);
+              fixture_update trampoline payload;
+              if fixture_call source <> expected || fixture_call trampoline <> expected then
+                failwith "far conditional relocation changed flags or branch direction")))
+    [0x84, 42; 0x85, 99]
+
 let selftest_no_vmx device =
   let capabilities = probe device in
   if capabilities.active || List.exists (fun (cpu : Protocol.capability) -> cpu.flags land 1 <> 0) capabilities.cpus then
@@ -274,7 +295,7 @@ let selftest ?(observe = fun _ -> ()) device =
   let current = status device in
   if not current.active then failwith "native hypervisor is not active";
   let original = constant_function 42 and replacement = constant_function 99 in
-  let fixture = fixture_create original in
+  let fixture = fixture_create original false in
   Fun.protect ~finally:(fun () -> fixture_close fixture) (fun () ->
       check_execution observe "original_execution" 42 (fixture_call fixture);
       let installed = shadow device ~pid:(Unix.getpid ()) ~address:(fixture_address fixture) replacement in
