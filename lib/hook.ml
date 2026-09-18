@@ -32,14 +32,23 @@ let absolute_call ~return_address destination =
   Bytes.blit (absolute_jump destination) 0 code 15 16;
   code
 
-let build ~page ~target ~replacement ~trampoline_address =
+let direct opcode ~address destination =
+  let delta = Int64.sub destination (Int64.add address 5L) in
+  if delta <> Int64.of_int32 (Int64.to_int32 delta) then failwith "cet transfer exceeds rel32 range";
+  let code = Bytes.make 5 '\000' in
+  Bytes.set code 0 opcode;
+  Bytes.set_int32_le code 1 (Int64.to_int32 delta);
+  code
+
+let build_with ~cet ~page ~target ~replacement ~trampoline_address =
   if Bytes.length page <> 4096 then Error "hook source must be one page"
   else if not (Bits.canonical target && Bits.canonical replacement && Bits.canonical trampoline_address) then
     Error "noncanonical hook address"
   else
     let start = Bits.page_offset target in
+    let landing = cet && start <= 4092 && Bytes.sub_string page start 4 = "\xf3\x0f\x1e\xfa" in
     let rec collect consumed instructions =
-      if consumed >= 16 then Ok (consumed, List.rev instructions)
+      if consumed >= (if cet then 20 else 16) then Ok (consumed, List.rev instructions)
       else if start + consumed >= 4096 then Error "hook crosses a page boundary"
       else
         let address = Int64.add target (Int64.of_int consumed) in
@@ -52,13 +61,14 @@ let build ~page ~target ~replacement ~trampoline_address =
             else collect (consumed + length) ((consumed, instruction) :: instructions)
     in
     try
+      if cet && not landing then failwith "cet hooks require an endbr64 entry";
       match collect 0 [] with
       | Error error -> Error error
       | Ok (consumed, instructions) ->
           let finish = Int64.add target (Int64.of_int consumed) in
           let emitted = function
             | Copy length | Relative (length, _, _) -> length
-            | Call _ -> 31
+            | Call _ -> if cet then 16 else 31
             | Jump _ -> 16
             | Conditional _ -> 18
             | Unsupported _ -> assert false in
@@ -85,6 +95,7 @@ let build ~page ~target ~replacement ~trampoline_address =
                 Bytes.set_int32_le code (length - 4) (Int64.to_int32 delta);
                 Buffer.add_bytes trampoline code)
               else (
+                if cet then failwith "cet branch exceeds rel32 range";
                 Option.iter (fun value ->
                     Buffer.add_char trampoline (Char.chr (0x70 + (value lxor 1)));
                     Buffer.add_char trampoline '\x10') condition;
@@ -102,19 +113,33 @@ let build ~page ~target ~replacement ~trampoline_address =
                     Buffer.add_bytes trampoline code
                 | Call (_, destination) ->
                     let destination = relocate destination in
-                    let return_address = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + 31)) in
-                    if not (Bits.canonical return_address) then failwith "noncanonical trampoline return address";
-                    Buffer.add_bytes trampoline (absolute_call ~return_address destination)
+                    if cet then (
+                      let address = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline)) in
+                      Buffer.add_bytes trampoline (direct '\xe8' ~address destination);
+                      Buffer.add_string trampoline (String.make 11 '\x90'))
+                    else (
+                      let return_address = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline + 31)) in
+                      if not (Bits.canonical return_address) then failwith "noncanonical trampoline return address";
+                      Buffer.add_bytes trampoline (absolute_call ~return_address destination))
                 | Jump (_, destination) -> branch None destination
                 | Conditional (_, condition, destination) -> branch (Some condition) destination
                 | Unsupported _ -> assert false) instructions;
-            Buffer.add_bytes trampoline (absolute_jump finish);
+            let tail = Int64.add trampoline_address (Int64.of_int (Buffer.length trampoline)) in
+            Buffer.add_bytes trampoline (if cet then direct '\xe9' ~address:tail finish else absolute_jump finish);
             let execution_page = Bytes.copy page in
-            Bytes.fill execution_page start consumed '\x90';
-            Bytes.blit (absolute_jump replacement) 0 execution_page start 16;
+            let patch = if cet then 4 else 0 in
+            Bytes.fill execution_page (start + patch) (consumed - patch) '\x90';
+            let jump = if cet then direct '\xe9' ~address:(Int64.add target 4L) replacement else absolute_jump replacement in
+            Bytes.blit jump 0 execution_page (start + patch) (Bytes.length jump);
             Ok { execution_page; trampoline = Bytes.of_string (Buffer.contents trampoline);
                  displaced_bytes = consumed }
     with Failure message -> Error message
+
+let build ~page ~target ~replacement ~trampoline_address =
+  build_with ~cet:false ~page ~target ~replacement ~trampoline_address
+
+let build_cet ~page ~target ~replacement ~trampoline_address =
+  build_with ~cet:true ~page ~target ~replacement ~trampoline_address
 
 let create () = { pending = []; count = 0 }
 

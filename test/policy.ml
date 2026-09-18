@@ -7,6 +7,14 @@ let get = function
   | Error message -> failwith message
 
 let test_hooks () =
+  let cet_page = Bytes.make 4096 '\x90' in
+  Bytes.blit_string "\xf3\x0f\x1e\xfa" 0 cet_page 0 4;
+  let cet = get (Hook.build_cet ~page:cet_page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L) in
+  check (Bytes.sub_string cet.execution_page 0 4 = "\xf3\x0f\x1e\xfa"
+         && Bytes.sub_string cet.trampoline 0 4 = "\xf3\x0f\x1e\xfa") "cet landing pads were displaced";
+  check (Bytes.get cet.execution_page 4 = '\xe9') "cet detour uses a synthetic return";
+  check (Result.is_error (Hook.build_cet ~page:cet_page ~target:0x1000L ~replacement:0x1_0000_0000L ~trampoline_address:0x3000L))
+    "unsafe far cet detour accepted";
   let page = Bytes.make 4096 '\x90' in
   Bytes.blit_string "\xe8\xfb\x00\x00\x00\xb8\x2a\x00\x00\x00" 0 page 0 10;
   let plan = get (Hook.build ~page ~target:0x1000L ~replacement:0x2000L ~trampoline_address:0x3000L) in

@@ -20,7 +20,7 @@ let read_payload path =
       if in_channel_length input <> 4096 then invalid_arg "native payload file must contain 4096 bytes";
       Bytes.of_string (really_input_string input 4096))
 
-let usage = "native commands: probe | plan | start | stop | status | selftest | test [--cycles N] [--min-cpus N] | read-page PID ADDRESS FILE | shadow PID ADDRESS FILE | unshadow ID | hook PID TARGET REPLACEMENT TRAMPOLINE | unhook TARGET_ID TRAMPOLINE_ID"
+let usage = "native commands: probe | plan | start | stop | status | selftest | test [--cycles N] [--min-cpus N] | read-page PID ADDRESS FILE | shadow PID ADDRESS FILE | unshadow ID | hook PID TARGET REPLACEMENT TRAMPOLINE [--cet] | unhook TARGET_ID TRAMPOLINE_ID"
 
 let validate arguments =
   let integer name maximum text =
@@ -45,7 +45,8 @@ let validate arguments =
       parse options
   | ["read-page"; process; target; _] | ["shadow"; process; target; _] -> pid process; address target
   | ["unshadow"; value] -> id value
-  | ["hook"; process; target; replacement; trampoline] ->
+  | ["hook"; process; target; replacement; trampoline]
+  | ["hook"; process; target; replacement; trampoline; "--cet"] ->
       pid process; List.iter address [target; replacement; trampoline]
   | ["unhook"; target; trampoline] -> id target; id trampoline
   | _ -> invalid_arg usage
@@ -102,8 +103,9 @@ let run arguments =
           let output = open_out_bin path in
           Fun.protect ~finally:(fun () -> close_out_noerr output) (fun () -> output_bytes output page.contents);
           Printf.printf "physical=0x%Lx process_cr3=0x%Lx\n" page.physical_address page.process_cr3
-      | ["hook"; pid; target; replacement; trampoline] ->
-          let hook = Native.hook device ~pid:(int_of_string pid) ~target:(Int64.of_string target)
+      | (["hook"; pid; target; replacement; trampoline]
+        | ["hook"; pid; target; replacement; trampoline; "--cet"]) as arguments ->
+          let hook = Native.hook ~cet:(List.mem "--cet" arguments) device ~pid:(int_of_string pid) ~target:(Int64.of_string target)
               ~replacement:(Int64.of_string replacement) ~trampoline_address:(Int64.of_string trampoline) in
           Printf.printf "hook target_id=%d trampoline_id=%d original=0x%Lx\n"
             hook.target_id hook.trampoline_id hook.trampoline_address

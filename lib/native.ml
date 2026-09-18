@@ -17,6 +17,7 @@ external affinity_get : unit -> int array = "remus_affinity_get"
 external affinity_set : int array -> unit = "remus_affinity_set"
 external pidfd_open : int -> Unix.file_descr = "remus_pidfd_open"
 external descriptor : Unix.file_descr -> int = "remus_descriptor"
+external fixture_cet_exit : fixture -> int -> unit = "remus_fixture_cet_exit"
 
 let with_pidfd ~pid callback =
   let fd = pidfd_open pid in
@@ -91,13 +92,14 @@ let read_page device ~pid ~address =
 let unhook device hook =
   ioctl device Protocol.unpair_command (Protocol.encode_unpair hook.target_id hook.trampoline_id)
 
-let hook device ~pid ~target ~replacement ~trampoline_address =
+let hook ?(cet = false) device ~pid ~target ~replacement ~trampoline_address =
   with_target pid (fun pidfd ->
   let source = read_page_at device ?pidfd ~pid ~address:target () in
   let destination = read_page_at device ?pidfd ~pid ~address:trampoline_address () in
   if source.physical_address = destination.physical_address then
     invalid_arg "hook and trampoline require different physical pages";
-  let plan = match Hook.build ~page:source.contents ~target ~replacement ~trampoline_address with
+  let build = if cet then Hook.build_cet else Hook.build in
+  let plan = match build ~page:source.contents ~target ~replacement ~trampoline_address with
     | Ok plan -> plan
     | Error message -> failwith message in
   let offset = Bits.page_offset trampoline_address in
@@ -221,6 +223,34 @@ let selftest_far () =
               if fixture_call source <> expected || fixture_call trampoline <> expected then
                 failwith "far conditional relocation changed flags or branch direction")))
     [0x84, 42; 0x85, 99]
+
+let selftest_cet () =
+  with_fixture (constant_function 42) (fun callee ->
+  with_fixture (constant_function 0) (fun source ->
+      let page = relative_call_page ~target:(fixture_address source) ~callee:(fixture_address callee) in
+      Bytes.set page 17 '\x90';
+      Bytes.set page 32 '\xc3';
+      fixture_update source page;
+      with_fixture (constant_function 99) (fun replacement ->
+          with_fixture (constant_function 0) (fun trampoline ->
+              let plan = match Hook.build_cet ~page ~target:(fixture_address source)
+                    ~replacement:(fixture_address replacement) ~trampoline_address:(fixture_address trampoline) with
+                | Ok plan -> plan
+                | Error message -> failwith message in
+              let payload = Bytes.make 4096 '\x90' in
+              Bytes.blit plan.trampoline 0 payload 0 (Bytes.length plan.trampoline);
+              fixture_update trampoline payload;
+              fixture_update source plan.execution_page;
+              if fixture_call source <> 99 || fixture_call trampoline <> 42 then failwith "cet detour execution failed";
+              List.iter (fun (fixture, expected) ->
+                  match Unix.fork () with
+                  | 0 -> fixture_cet_exit fixture expected; Unix._exit 1
+                  | child ->
+                      match snd (Runner.waitpid [] child) with
+                      | Unix.WEXITED 0 -> ()
+                      | Unix.WEXITED 77 -> print_endline "skip hardware shadow-stack enforcement: unavailable"
+                      | _ -> failwith "hardware shadow-stack enforcement failed")
+                [source, 99; trampoline, 42]))))
 
 let selftest_no_vmx device =
   let capabilities = probe device in

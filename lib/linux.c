@@ -109,6 +109,19 @@ static void *get_fixture(value handle) {
   return page;
 }
 
+CAMLprim value remus_fixture_cet_exit(value handle, value expected) {
+  void *function = get_fixture(handle);
+  int result = Int_val(expected);
+  __asm__ volatile(
+      "mov %[function],%%r12; mov %[expected],%%r13d; and $-16,%%rsp;"
+      "mov $158,%%eax; mov $0x5001,%%edi; mov $1,%%esi; syscall;"
+      "test %%rax,%%rax; jnz 1f; call *%%r12; cmp %%r13d,%%eax; setne %%dil; movzbl %%dil,%%edi; jmp 2f;"
+      "1: mov $77,%%edi; 2: mov $60,%%eax; syscall; ud2"
+      : : [function] "r"(function), [expected] "r"(result)
+      : "rax", "rcx", "rdx", "rdi", "rsi", "r8", "r9", "r10", "r11", "r12", "r13", "memory", "cc");
+  __builtin_unreachable();
+}
+
 CAMLprim value remus_fixture_create(value page, value low) {
   CAMLparam2(page, low);
   CAMLlocal1(handle);

@@ -110,5 +110,6 @@ let () =
      "native relocated call execution", Native.selftest_trampoline;
      "native rip-relative load execution", Native.selftest_relative;
      "native internal branch execution", Native.selftest_branches;
-     "native far conditional execution", Native.selftest_far];
+     "native far conditional execution", Native.selftest_far;
+     "native cet detour execution", Native.selftest_cet];
   test_hardware ()
