@@ -1,5 +1,6 @@
 type native
-type t = { owner : Domain.id; native : native; mutable busy : bool }
+type state = Idle | Running | Closed
+type t = { owner : Domain.id; native : native; state : state Atomic.t }
 type exit =
   | Halt
   | Shutdown
@@ -13,17 +14,22 @@ external close_native : native -> unit = "remus_kvm_close"
 external run_native : native -> exit = "remus_kvm_run"
 external reply_io_native : native -> bytes -> unit = "remus_kvm_reply_io"
 
-let create code = { owner = Domain.self (); native = create_native code; busy = false }
+let create code = { owner = Domain.self (); native = create_native code; state = Atomic.make Idle }
 
 let check_owner vm =
-  if Domain.self () <> vm.owner then invalid_arg "kvm handle belongs to another domain";
-  if vm.busy then invalid_arg "kvm handle is already running"
+  if Domain.self () <> vm.owner then invalid_arg "kvm handle belongs to another domain"
 
-let close vm = check_owner vm; close_native vm.native
-let run vm =
+let with_operation vm callback =
   check_owner vm;
-  Fun.protect ~finally:(fun () -> vm.busy <- false) (fun () ->
-      vm.busy <- true;
-      run_native vm.native)
+  if not (Atomic.compare_and_set vm.state Idle Running) then
+    invalid_arg (if Atomic.get vm.state = Closed then "closed kvm handle" else "kvm handle is already in use");
+  Fun.protect ~finally:(fun () -> Atomic.set vm.state Idle) (fun () -> callback vm.native)
 
-let reply_io vm data = check_owner vm; reply_io_native vm.native data
+let close vm =
+  check_owner vm;
+  if Atomic.compare_and_set vm.state Idle Closed then close_native vm.native
+  else if Atomic.get vm.state <> Closed then invalid_arg "cannot close a running kvm handle"
+
+let run vm = with_operation vm run_native
+
+let reply_io vm data = with_operation vm (fun native -> reply_io_native native data)

@@ -29,9 +29,23 @@ let test_kvm () =
     let result = Runner.run ~backend:Kvm ~timeout:10. (Guest.demo ()) in
     check (result.backend = Kvm && result.stop = Guest_exit 0x10) "kvm executes guest and exits";
     let vm = Kvm.create (Guest.demo ()) in
+    check (Domain.join (Domain.spawn (fun () ->
+        try Kvm.close vm; false with Invalid_argument _ -> true))) "another domain closed the vcpu";
     Kvm.close vm;
     Kvm.close vm;
     check (try ignore (Kvm.run vm); false with Invalid_argument _ -> true) "closed vm rejected";
+    let looping = Kvm.create (Guest.boot_sector (Bytes.of_string "\xeb\xfe")) in
+    let blocked = ref false in
+    let previous = Sys.signal Sys.sigalrm (Sys.Signal_handle (fun _ ->
+        blocked := (try Kvm.close looping; false with Invalid_argument _ -> true);
+        raise Exit)) in
+    Fun.protect ~finally:(fun () ->
+        ignore (Unix.setitimer Unix.ITIMER_REAL { it_interval = 0.; it_value = 0. });
+        Sys.set_signal Sys.sigalrm previous;
+        Kvm.close looping) (fun () ->
+        ignore (Unix.setitimer Unix.ITIMER_REAL { it_interval = 0.; it_value = 0.1 });
+        (try ignore (Kvm.run looping) with Exit -> ());
+        check !blocked "reentrant close unmapped the running vcpu");
     check (try ignore (Runner.run ~backend:Kvm ~timeout:0.1 (Bytes.of_string "\xeb\xfe"));
         false with Runner.Timeout -> true) "kvm runaway guest times out";
     print_endline "ok kvm guest and lifecycle")
