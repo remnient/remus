@@ -1,4 +1,9 @@
 (test
+ (name process)
+ (modules process)
+ (libraries remus unix))
+
+(test
  (name registers)
  (modules registers)
  (libraries remus)

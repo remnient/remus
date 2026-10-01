@@ -66,6 +66,7 @@ let () =
   with
   | Lifecycle.Unavailable reason -> prerr_endline ("remus: " ^ reason); exit 77
   | Runner.Timeout -> prerr_endline "remus: guest timed out"; exit 124
+  | Runner.Terminated -> prerr_endline "remus: terminated"; exit 143
   | Sys.Break -> prerr_endline "remus: interrupted"; exit 130
   | Failure message | Invalid_argument message | Sys_error message ->
       prerr_endline ("remus: " ^ message); exit 1

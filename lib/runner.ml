@@ -2,10 +2,16 @@ type backend = Auto | Kvm | Qemu
 type stop = Halted | Guest_exit of int
 type result = { backend : backend; stop : stop }
 exception Timeout
+exception Terminated
 
 external monotonic_clock : unit -> float = "remus_monotonic_clock"
 
 let backend_name = function Auto -> "auto" | Kvm -> "kvm" | Qemu -> "qemu"
+
+let with_termination callback =
+  if not (Domain.is_main_domain ()) then invalid_arg "guest execution requires the main domain";
+  let previous = Sys.signal Sys.sigterm (Sys.Signal_handle (fun _ -> raise Terminated)) in
+  Fun.protect ~finally:(fun () -> Sys.set_signal Sys.sigterm previous) callback
 
 let kvm_available () =
   try Kvm.api_version () = 12 with Unix.Unix_error _ -> false
@@ -78,8 +84,10 @@ let run_qemu ~timeout code =
       let reaped = ref false in
       Fun.protect ~finally:(fun () ->
           if not !reaped then (
-            (try Unix.kill pid Sys.sigkill with Unix.Unix_error (Unix.ESRCH, _, _) -> ());
-            ignore (waitpid [] pid)))
+            let previous = Unix.sigprocmask Unix.SIG_BLOCK [Sys.sigterm; Sys.sigint] in
+            Fun.protect ~finally:(fun () -> ignore (Unix.sigprocmask Unix.SIG_SETMASK previous)) (fun () ->
+                (try Unix.kill pid Sys.sigkill with Unix.Unix_error (Unix.ESRCH, _, _) -> ());
+                ignore (waitpid [] pid))))
         (fun () ->
           let deadline = monotonic_clock () +. timeout in
           let rec wait () =
@@ -107,7 +115,7 @@ let run ~backend ~timeout code =
     | Auto -> if kvm_available () then Kvm else Qemu
     | backend -> backend
   in
-  match backend with
+  with_termination (fun () -> match backend with
   | Kvm -> run_kvm ~timeout code
   | Qemu -> run_qemu ~timeout code
-  | Auto -> assert false
+  | Auto -> assert false)
