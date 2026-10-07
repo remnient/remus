@@ -271,6 +271,47 @@ let selftest_no_vmx device =
     failwith "unsupported start left an active cpu";
   stop device
 
+let selftest_faults ?(limit = 64) device =
+  Runner.with_termination (fun () ->
+  if limit < 1 then invalid_arg "allocation fault limit must be positive";
+  let read name =
+    let input = open_in ("/sys/module/remus/parameters/" ^ name) in
+    Fun.protect ~finally:(fun () -> close_in input) (fun () -> int_of_string (input_line input)) in
+  let configure value =
+    let output = open_out "/sys/module/remus/parameters/fail" in
+    Fun.protect ~finally:(fun () -> close_out output) (fun () -> Printf.fprintf output "%d\n" value) in
+  let capability = probe device in
+  if capability.active then failwith "allocation tests require an inactive backend";
+  let controls, supported = match Plan.build capability with
+    | Ok controls -> controls, true
+    | Error _ when List.for_all (fun (cpu : Protocol.capability) -> cpu.flags land 1 = 0) capability.cpus ->
+        List.map (fun (cpu : Protocol.capability) ->
+            { Protocol.cpu = cpu.cpu; pin = 0L; primary = 0x9000_8000L;
+              secondary = 0x10_102aL; exit = 0x3c_0204L; entry = 0xc204L }) capability.cpus, false
+    | Error _ -> failwith "processor capabilities do not permit the allocation test" in
+  let previous = read "fail" in
+  let tested, count = Fun.protect ~finally:(fun () -> configure previous) (fun () ->
+      let attempt expected =
+        let owned = ref true in
+        Fun.protect ~finally:(fun () -> if !owned then stop device) (fun () ->
+            let result = try start device controls; None with
+              | Unix.Unix_error (Unix.EALREADY, _, _) as error -> owned := false; raise error
+              | Unix.Unix_error (error, _, _) -> Some error in
+            if result <> expected then failwith "allocation injection returned an unexpected start result");
+        if (status device).active then failwith "allocation rollback left vmx active" in
+      configure (-1);
+      attempt (if supported then None else Some Unix.EOPNOTSUPP);
+      let count = read "allocations" in
+      if count < 1 then failwith "driver did not expose allocation attempts";
+      let tested = min limit count in
+      for index = 0 to tested - 1 do
+        let point = if tested = 1 then 0 else index * (count - 1) / (tested - 1) in
+        configure point;
+        attempt (Some Unix.ENOMEM)
+      done;
+      tested, count) in
+  Printf.printf "allocation rollback passed: %d of %d allocation points\n%!" tested count)
+
 let foreign_execution fixture =
   let input, output = Unix.pipe ~cloexec:true () in
   let child = try Unix.fork () with error -> Unix.close input; Unix.close output; raise error in

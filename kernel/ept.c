@@ -69,9 +69,9 @@ static void capture_mtrrs_on_cpu(void *argument) {
 int remus_ept_allocate(struct remus_cpu *cpu) {
   unsigned int directory, index;
   int error;
-  cpu->pml4 = (void *)get_zeroed_page(GFP_KERNEL);
-  cpu->pdpt = (void *)get_zeroed_page(GFP_KERNEL);
-  cpu->directories = kcalloc(512, sizeof(*cpu->directories), GFP_KERNEL);
+  cpu->pml4 = remus_page(GFP_KERNEL);
+  cpu->pdpt = remus_page(GFP_KERNEL);
+  cpu->directories = remus_array(512, sizeof(*cpu->directories));
   if (!cpu->pml4 || !cpu->pdpt || !cpu->directories) return -ENOMEM;
   error = smp_call_function_single(cpu->capability.cpu, capture_mtrrs_on_cpu, cpu, 1);
   if (error || cpu->status.error) return error ?: cpu->status.error;
@@ -81,7 +81,7 @@ int remus_ept_allocate(struct remus_cpu *cpu) {
   cpu->pml4[0] = __pa(cpu->pdpt) | 7;
   cpu->eptp = __pa(cpu->pml4) | 0x1e;
   for (directory = 0; directory < 512; directory++) {
-    cpu->directories[directory] = (void *)get_zeroed_page(GFP_KERNEL);
+    cpu->directories[directory] = remus_page(GFP_KERNEL);
     if (!cpu->directories[directory]) return -ENOMEM;
     cpu->pdpt[directory] = __pa(cpu->directories[directory]) | 7;
     for (index = 0; index < 512; index++) {
@@ -136,9 +136,9 @@ int remus_split_page(struct remus_cpu *cpu, u64 address) {
   if (!(*entry & BIT_ULL(7))) return 0;
   original = *entry;
   first = original & GENMASK_ULL(51, 21);
-  split = kzalloc(sizeof(*split), GFP_KERNEL);
+  split = remus_zalloc(sizeof(*split));
   if (!split) return -ENOMEM;
-  split->entries = (void *)get_zeroed_page(GFP_KERNEL);
+  split->entries = remus_page(GFP_KERNEL);
   if (!split->entries) { kfree(split); return -ENOMEM; }
   split->first = address & ~(SZ_2M - 1);
   for (i = 0; i < 512; i++) {

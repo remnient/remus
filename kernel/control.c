@@ -25,6 +25,16 @@ static struct remus_cpu_status last_status[REMUS_MAX_CPUS];
 static unsigned int last_count;
 struct remus_ram_range remus_ram_ranges[256];
 unsigned int remus_ram_count;
+static int fail = -1;
+static unsigned int allocations;
+module_param(fail, int, 0600);
+module_param(allocations, uint, 0400);
+
+bool remus_fail_allocation(void) {
+  unsigned int index = allocations++;
+  int requested = READ_ONCE(fail);
+  return requested >= 0 && index == requested;
+}
 
 static int refresh_cpu(void *argument);
 static void reap_shadows(struct work_struct *work);
@@ -157,7 +167,7 @@ static int start_locked(struct remus_start *request) {
     if (request->cpus[count].cpu != id || request->cpus[count].reserved || request->cpus[count].reserved2) {
       error = -EINVAL; goto release;
     }
-    cpu = kzalloc(sizeof(*cpu), GFP_KERNEL);
+    cpu = remus_zalloc(sizeof(*cpu));
     if (!cpu) { error = -ENOMEM; goto release; }
     INIT_LIST_HEAD(&cpu->splits);
     INIT_LIST_HEAD(&cpu->retired);
@@ -277,7 +287,7 @@ static int prepare_shadow(struct remus_shadow_request *request, unsigned int slo
   unsigned int id;
   int error;
   shadow->peer = REMUS_MAX_SHADOWS;
-  shadow->payload = (void *)get_zeroed_page(GFP_KERNEL);
+  shadow->payload = remus_page(GFP_KERNEL);
   if (!shadow->payload) return -ENOMEM;
   memcpy(shadow->payload, request->page, PAGE_SIZE);
   error = pin_target(shadow, request, false);
@@ -394,6 +404,7 @@ static long remus_ioctl(struct file *file, unsigned int command, unsigned long u
     if ((_IOC_DIR(command) & _IOC_WRITE) && copy_from_user(buffer, pointer, size)) { error = -EFAULT; goto free; }
   }
   if (mutex_lock_interruptible(&control_lock)) { error = -ERESTARTSYS; goto free; }
+  if (command == REMUS_IOCTL_START || command == REMUS_IOCTL_SHADOW || command == REMUS_IOCTL_PAIR) allocations = 0;
   switch (command) {
     case REMUS_IOCTL_PROBE: error = fill_probe(buffer); break;
     case REMUS_IOCTL_START: error = start_locked(buffer); break;

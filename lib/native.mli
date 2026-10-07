@@ -28,4 +28,5 @@ val with_cpu : int -> (unit -> 'a) -> 'a
 val print_observation : observation -> unit
 val selftest_hook : ?observe:(observation -> unit) -> t -> unit
 val selftest_no_vmx : t -> unit
+val selftest_faults : ?limit:int -> t -> unit
 val selftest : ?observe:(observation -> unit) -> t -> unit

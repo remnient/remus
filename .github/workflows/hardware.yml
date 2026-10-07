@@ -45,5 +45,6 @@ jobs:
         run: |
           sudo -n insmod kernel/remus.ko
           trap 'sudo -n rmmod remus' EXIT
+          sudo -n _build/install/default/bin/remus native faults
           sudo -n _build/install/default/bin/remus native test \
             --cycles "$VMX_CYCLES" --min-cpus 2

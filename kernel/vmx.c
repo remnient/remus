@@ -82,14 +82,14 @@ int remus_allocate_cpu(struct remus_cpu *cpu) {
   int error = validate(cpu);
   gfp_t vmcs_flags = GFP_KERNEL | ((cpu->capability.basic & BIT_ULL(48)) ? GFP_DMA32 : 0);
   if (error) return error;
-  cpu->vmxon = (void *)get_zeroed_page(vmcs_flags);
-  cpu->vmcs = (void *)get_zeroed_page(vmcs_flags);
-  cpu->stack = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, REMUS_STACK_ORDER);
-  cpu->msr_bitmap = (void *)get_zeroed_page(GFP_KERNEL);
-  cpu->host_pgd = (void *)get_zeroed_page(GFP_KERNEL);
-  cpu->scratch_pdpt = (void *)get_zeroed_page(GFP_KERNEL);
-  cpu->scratch_pd = (void *)get_zeroed_page(GFP_KERNEL);
-  cpu->scratch_pt = (void *)get_zeroed_page(GFP_KERNEL);
+  cpu->vmxon = remus_page(vmcs_flags);
+  cpu->vmcs = remus_page(vmcs_flags);
+  cpu->stack = remus_pages(GFP_KERNEL | __GFP_ZERO, REMUS_STACK_ORDER);
+  cpu->msr_bitmap = remus_page(GFP_KERNEL);
+  cpu->host_pgd = remus_page(GFP_KERNEL);
+  cpu->scratch_pdpt = remus_page(GFP_KERNEL);
+  cpu->scratch_pd = remus_page(GFP_KERNEL);
+  cpu->scratch_pt = remus_page(GFP_KERNEL);
   if (!cpu->vmxon || !cpu->vmcs || !cpu->stack || !cpu->msr_bitmap || !cpu->host_pgd
       || !cpu->scratch_pdpt || !cpu->scratch_pd || !cpu->scratch_pt) return -ENOMEM;
   *(u32 *)cpu->vmxon = cpu->capability.basic & 0x7fffffff;

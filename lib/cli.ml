@@ -32,7 +32,7 @@ let validate arguments =
     if not (Bits.canonical (Int64.of_string text)) then invalid_arg "noncanonical address" in
   match arguments with
   | ["probe"] | ["plan"] | ["start"] | ["stop"] | ["status"]
-  | ["selftest"] | ["selftest-no-vmx"] -> ()
+  | ["selftest"] | ["selftest-no-vmx"] | ["faults"] | ["faults"; "--all"] -> ()
   | "test" :: options ->
       let rec parse = function
         | [] -> ()
@@ -58,6 +58,8 @@ let run arguments =
   validate arguments;
   Native.with_device (fun device ->
       match arguments with
+      | ["faults"] -> Native.selftest_faults device
+      | ["faults"; "--all"] -> Native.selftest_faults ~limit:max_int device
       | "test" :: options ->
           let rec parse cycles min_cpus = function
             | [] -> cycles, min_cpus

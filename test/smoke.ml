@@ -56,6 +56,8 @@ set -- $(/bin/busybox head -n 1 /proc/1/maps)
 /bin/busybox cmp -n 4096 /page.bin /bin/busybox
 /bin/busybox hexdump -C -n 64 /page.bin
 echo REMUS_STEP_PAGE_CAPTURE
+/remus native faults
+echo REMUS_STEP_ALLOCATION_ROLLBACK
 /remus native selftest-no-vmx
 if /remus native test --cycles 1 --min-cpus 2; then
   exit 1
@@ -142,7 +144,7 @@ let run ?log_path ?(timeout = 60.) ~kernel ~module_path ~controller () =
           print_string contents;
           let lines = String.split_on_char '\n' contents |> List.map String.trim in
           let required = ["REMUS_STEP_MODULE_LOADED"; "REMUS_STEP_PAGE_CAPTURE";
-            "REMUS_STEP_NO_VMX_ROLLBACK"; "REMUS_STEP_CPU_HOTPLUG"; "REMUS_STEP_MODULE_UNLOADED"; "REMUS_SMOKE_PASS"] in
+            "REMUS_STEP_ALLOCATION_ROLLBACK"; "REMUS_STEP_NO_VMX_ROLLBACK"; "REMUS_STEP_CPU_HOTPLUG"; "REMUS_STEP_MODULE_UNLOADED"; "REMUS_SMOKE_PASS"] in
           if result <> Unix.WEXITED 0 || not (List.for_all (fun marker -> List.mem marker lines) required)
              || List.mem "REMUS_SMOKE_FAIL" lines then failwith ("kernel smoke failed; log: " ^ log);
           Printf.printf "ok native kernel smoke; log: %s\n" log))

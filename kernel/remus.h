@@ -5,6 +5,7 @@
 #include <linux/percpu.h>
 #include <linux/sizes.h>
 #include <linux/mmu_notifier.h>
+#include <linux/slab.h>
 #include <asm/desc.h>
 #include <asm/msr.h>
 #include <asm/vmx.h>
@@ -13,6 +14,24 @@
 #define REMUS_STACK_ORDER 3
 #define REMUS_EPT_LIMIT (1ULL << 39)
 #define remus_read_msr(index, value) ((value) = native_read_msr(index))
+
+bool remus_fail_allocation(void);
+
+static inline void *remus_zalloc(size_t size) {
+  return remus_fail_allocation() ? NULL : kzalloc(size, GFP_KERNEL);
+}
+
+static inline void *remus_page(gfp_t flags) {
+  return remus_fail_allocation() ? NULL : (void *)get_zeroed_page(flags);
+}
+
+static inline void *remus_pages(gfp_t flags, unsigned int order) {
+  return remus_fail_allocation() ? NULL : (void *)__get_free_pages(flags, order);
+}
+
+static inline void *remus_array(size_t count, size_t size) {
+  return remus_fail_allocation() ? NULL : kcalloc(count, size, GFP_KERNEL);
+}
 
 static inline void remus_cpuid(u32 leaf, u32 *eax, u32 *ebx, u32 *ecx, u32 *edx) {
   *eax = leaf;
