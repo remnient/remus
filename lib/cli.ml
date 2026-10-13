@@ -20,7 +20,7 @@ let read_payload path =
       if in_channel_length input <> 4096 then invalid_arg "native payload file must contain 4096 bytes";
       Bytes.of_string (really_input_string input 4096))
 
-let usage = "native commands: probe | plan | start | stop | status | selftest | test [--cycles N] [--min-cpus N] | read-page PID ADDRESS FILE | shadow PID ADDRESS FILE | unshadow ID | hook PID TARGET REPLACEMENT TRAMPOLINE [--cet] | unhook TARGET_ID TRAMPOLINE_ID"
+let usage = "native commands: probe | plan | start | stop | status | selftest | faults [--all] | stress [--cycles N] | test [--cycles N] [--min-cpus N] | read-page PID ADDRESS FILE | shadow PID ADDRESS FILE | unshadow ID | hook PID TARGET REPLACEMENT TRAMPOLINE [--cet] | unhook TARGET_ID TRAMPOLINE_ID"
 
 let validate arguments =
   let integer name maximum text =
@@ -33,10 +33,12 @@ let validate arguments =
   match arguments with
   | ["probe"] | ["plan"] | ["start"] | ["stop"] | ["status"]
   | ["selftest"] | ["selftest-no-vmx"] | ["faults"] | ["faults"; "--all"] -> ()
-  | "test" :: options ->
+  | (("test" | "stress") as command) :: options ->
+      if command = "stress" && List.length options > 2 then invalid_arg usage;
       let rec parse = function
         | [] -> ()
         | (("--cycles" | "--min-cpus") as flag) :: value :: rest ->
+            if command = "stress" && flag = "--min-cpus" then invalid_arg usage;
             let maximum = if flag = "--cycles" then 1000 else Protocol.max_cpus in
             integer flag maximum value;
             if int_of_string value = 0 then invalid_arg (flag ^ " must be positive");
@@ -58,6 +60,8 @@ let run arguments =
   validate arguments;
   Native.with_device (fun device ->
       match arguments with
+      | ["stress"] -> Native.selftest_stress device
+      | ["stress"; "--cycles"; count] -> Native.selftest_stress ~cycles:(int_of_string count) device
       | ["faults"] -> Native.selftest_faults device
       | ["faults"; "--all"] -> Native.selftest_faults ~limit:max_int device
       | "test" :: options ->

@@ -47,6 +47,7 @@ let simulated ?(initially_active = false) ?(partial_start = false) ?(test_failur
         observe (Native.Execution { name = "shadow_execution"; expected = 99; actual = 99 });
         observe (Native.Readback { name = "original_readback"; unchanged = true }));
     hook_test = (fun observe -> observe (Native.Execution { name = "trampoline_execution"; expected = 42; actual = 42 }));
+    stress_test = (fun () -> check !active "stress ran after teardown");
     post_stop_test = (fun () -> check (not !active) "post-stop code ran while active"; incr restored);
   } in
   backend, starts, stops, tested, restored, active

@@ -7,6 +7,7 @@ type backend = {
   stop : unit -> unit;
   shadow_test : (Native.observation -> unit) -> unit;
   hook_test : (Native.observation -> unit) -> unit;
+  stress_test : unit -> unit;
   post_stop_test : unit -> unit;
 }
 

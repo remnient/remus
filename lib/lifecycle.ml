@@ -7,6 +7,7 @@ type backend = {
   stop : unit -> unit;
   shadow_test : (Native.observation -> unit) -> unit;
   hook_test : (Native.observation -> unit) -> unit;
+  stress_test : unit -> unit;
   post_stop_test : unit -> unit;
 }
 
@@ -54,6 +55,7 @@ let exercise ~log ~cycles ~min_cpus backend =
                   if not unchanged then failwith ("source bytes changed: " ^ name) in
             backend.shadow_test observe;
             backend.hook_test observe)) cpus;
+        backend.stress_test ();
         let status = backend.status () in
         check_status cpus true status;
         List.iter (fun (cpu : Protocol.cpu_status) ->
@@ -83,5 +85,6 @@ let native device = {
   stop = (fun () -> Native.stop device);
   shadow_test = (fun observe -> Native.selftest ~observe device);
   hook_test = (fun observe -> Native.selftest_hook ~observe device; Native.selftest_mapping device);
+  stress_test = (fun () -> Native.selftest_stress device);
   post_stop_test = (fun () -> Native.selftest_fixture (); Native.selftest_trampoline ());
 }

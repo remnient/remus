@@ -312,6 +312,67 @@ let selftest_faults ?(limit = 64) device =
       tested, count) in
   Printf.printf "allocation rollback passed: %d of %d allocation points\n%!" tested count)
 
+let selftest_stress ?(cycles = 32) device =
+  Runner.with_termination (fun () ->
+  if cycles < 1 || cycles > 1000 then invalid_arg "stress cycles must be 1..1000";
+  let current = status device in
+  if not current.active then failwith "stress tests require an active backend";
+  let cpus = List.map (fun (cpu : Protocol.cpu_status) -> cpu.cpu) current.cpus in
+  let available = available_cpus () in
+  if List.exists (fun cpu -> not (List.mem cpu available)) cpus then failwith "stress tests require access to every online cpu";
+  with_fixture (constant_function 42) (fun fixture ->
+      let original = constant_function 42 in
+      let phase = Atomic.make 0 and stopped = Atomic.make false and error = Atomic.make None in
+      let acknowledgements = Array.init (List.length cpus) (fun _ -> Atomic.make (-1)) in
+      let workers = ref [] and results = ref [] and installed = ref None in
+      let wait expected =
+        let deadline = Runner.monotonic_clock () +. 10. in
+        let rec loop () =
+          Option.iter failwith (Atomic.get error);
+          if Array.exists (fun value -> Atomic.get value < expected) acknowledgements then (
+            if Runner.monotonic_clock () > deadline then failwith "stress worker did not acknowledge its execution phase";
+            ignore (Unix.select [] [] [] 0.001);
+            loop ()) in
+        loop () in
+      Fun.protect ~finally:(fun () ->
+          Atomic.set stopped true;
+          List.iter (fun worker -> results := Domain.join worker :: !results) !workers;
+          Option.iter (unshadow device) !installed) (fun () ->
+          List.iteri (fun index cpu ->
+              let worker = Domain.spawn (fun () ->
+                  let originals = ref 0 and shadows = ref 0 in
+                  (try with_cpu cpu (fun () ->
+                      while not (Atomic.get stopped) do
+                        let observed = Atomic.get phase in
+                        let value = fixture_call fixture in
+                        if value = 42 then incr originals
+                        else if value = 99 then incr shadows
+                        else failwith "concurrent shadow execution returned an invalid value";
+                        if observed > Atomic.get acknowledgements.(index) then (
+                          if value <> (if observed land 1 = 0 then 42 else 99) then
+                            failwith "execution did not follow the committed ept view";
+                          if fixture_read fixture <> original then failwith "concurrent reads exposed replacement bytes";
+                          Atomic.set acknowledgements.(index) observed)
+                      done)
+                   with exception_ -> Atomic.set error (Some (Printexc.to_string exception_)));
+                  cpu, !originals, !shadows) in
+              workers := worker :: !workers) cpus;
+          wait 0;
+          for cycle = 1 to cycles do
+            let shadowed = shadow device ~pid:(Unix.getpid ()) ~address:(fixture_address fixture) (constant_function 99) in
+            installed := Some shadowed.id;
+            Atomic.set phase (2 * cycle - 1);
+            wait (2 * cycle - 1);
+            unshadow device shadowed.id;
+            installed := None;
+            Atomic.set phase (2 * cycle);
+            wait (2 * cycle)
+          done);
+      Option.iter failwith (Atomic.get error);
+      List.iter (fun (cpu, originals, shadows) ->
+          if originals = 0 || shadows = 0 then failwith "stress worker did not exercise both page views";
+          Printf.printf "stress cpu=%d original=%d shadow=%d cycles=%d\n%!" cpu originals shadows cycles) !results))
+
 let foreign_execution fixture =
   let input, output = Unix.pipe ~cloexec:true () in
   let child = try Unix.fork () with error -> Unix.close input; Unix.close output; raise error in
