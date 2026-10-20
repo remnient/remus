@@ -1,0 +1,7 @@
+(install
+ (section doc)
+ (files
+  (assets/architecture.svg as assets/architecture.svg)
+  (assets/shadow.svg as assets/shadow.svg)
+  (assets/preview.png as assets/preview.png)
+  (assets/remus.mp4 as assets/remus.mp4)))
