@@ -15,6 +15,7 @@
 #include <linux/vmalloc.h>
 #include <linux/file.h>
 #include <linux/magic.h>
+#include <asm/io.h>
 #include "remus.h"
 
 struct remus_shadow remus_shadows[REMUS_MAX_SHADOWS];

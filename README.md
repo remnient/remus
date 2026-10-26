@@ -1,12 +1,6 @@
 <div align="center">
 
-<video src="assets/remus.mp4" poster="assets/preview.png" width="960" controls preload="metadata">
-  <a href="assets/remus.mp4">
-    <img src="assets/preview.png" width="960" alt="">
-  </a>
-</video>
-
-[](assets/remus.mp4)
+https://github.com/user-attachments/assets/71243f17-1b1d-4abc-a153-23d45fc758d0
 
 </div>
 

@@ -27,7 +27,10 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcapstone-dev qemu-system-x86 busybox-static linux-headers-generic linux-image-generic
+          sudo apt-get install -y --no-install-recommends libcapstone-dev qemu-system-x86 busybox-static linux-headers-generic
+          guest_kernel=$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' -printf '%f\n' | sort -V | tail -n 1)
+          test -n "$guest_kernel"
+          sudo apt-get install -y --no-install-recommends "linux-image-${guest_kernel#linux-headers-}"
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml }}
@@ -52,3 +55,12 @@ jobs:
           opam exec -- dune exec --profile release test/smoke.exe -- \
             "$RUNNER_TEMP/remus-vmlinuz" kernel/remus.ko \
             _build/install/default/bin/remus
+      - name: Verify the source package
+        shell: bash
+        run: |
+          guest_kernel=$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' -printf '%f\n' | sort -V | tail -n 1)
+          make dist
+          cp _build/dist/remus.tar.gz "$RUNNER_TEMP/remus.tar.gz"
+          make dist
+          cmp "$RUNNER_TEMP/remus.tar.gz" _build/dist/remus.tar.gz
+          opam exec -- make distcheck KDIR="/usr/src/$guest_kernel"

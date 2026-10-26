@@ -181,14 +181,14 @@ int remus_ept_mtrr_write(struct remus_cpu *cpu, u32 index, u64 value) {
   unsigned long cr0;
   int error;
   unsigned int directory, slot, i;
-  if (native_read_msr_safe(index, &previous)) return -EINVAL;
+  if (remus_read_safe(index, &previous)) return -EINVAL;
   cr0 = read_cr0();
   write_cr0((cr0 | X86_CR0_CD) & ~X86_CR0_NW);
   asm volatile("wbinvd" : : : "memory");
-  error = native_write_msr_safe(index, value);
+  error = remus_write_safe(index, value);
   if (!error) error = capture_mtrrs(cpu);
   if (error) {
-    if (native_write_msr_safe(index, previous) || capture_mtrrs(cpu)) panic("remus: mtrr rollback failed");
+    if (remus_write_safe(index, previous) || capture_mtrrs(cpu)) panic("remus: mtrr rollback failed");
   }
   asm volatile("wbinvd" : : : "memory");
   write_cr0(cr0);

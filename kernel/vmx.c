@@ -440,7 +440,7 @@ int remus_dispatch(struct remus_cpu *cpu) {
     case 31:
       cpu->status.msr++;
       if (remus_vmread(GUEST_CS_SELECTOR) & 3) { inject(13, true); return 1; }
-      if (native_read_msr_safe((u32)regs->rcx, &value)) { inject(13, true); return 1; }
+      if (remus_read_safe((u32)regs->rcx, &value)) { inject(13, true); return 1; }
       regs->rax = (u32)value; regs->rdx = value >> 32;
       break;
     case 32:
@@ -451,7 +451,7 @@ int remus_dispatch(struct remus_cpu *cpu) {
         if (remus_ept_mtrr_write(cpu, (u32)regs->rcx, value)) { inject(13, true); return 1; }
         break;
       }
-      if (native_write_msr_safe((u32)regs->rcx, value)) { inject(13, true); return 1; }
+      if (remus_write_safe((u32)regs->rcx, value)) { inject(13, true); return 1; }
       break;
     case 37: {
       u64 rip = remus_vmread(GUEST_RIP);
@@ -522,11 +522,11 @@ int remus_restore(struct remus_cpu *cpu) {
   asm volatile("mov %0,%%ds; mov %1,%%es; mov %2,%%fs; lldt %3"
       : : "r"(ds), "r"(es), "r"(fs_selector), "m"(ldtr) : "memory");
   native_load_gs_index(gs_selector);
-  native_write_msr(MSR_KERNEL_GS_BASE, kernel_gs);
-  native_write_msr(MSR_FS_BASE, fs); native_write_msr(MSR_GS_BASE, gs);
-  native_write_msr(MSR_IA32_SYSENTER_CS, sysenter_cs); native_write_msr(MSR_IA32_SYSENTER_ESP, sysenter_esp);
-  native_write_msr(MSR_IA32_SYSENTER_EIP, sysenter_eip);
-  native_write_msr(MSR_IA32_CR_PAT, pat); native_write_msr(MSR_EFER, efer); native_write_msr(MSR_IA32_DEBUGCTLMSR, debugctl);
+  remus_write_msr(MSR_KERNEL_GS_BASE, kernel_gs);
+  remus_write_msr(MSR_FS_BASE, fs); remus_write_msr(MSR_GS_BASE, gs);
+  remus_write_msr(MSR_IA32_SYSENTER_CS, sysenter_cs); remus_write_msr(MSR_IA32_SYSENTER_ESP, sysenter_esp);
+  remus_write_msr(MSR_IA32_SYSENTER_EIP, sysenter_eip);
+  remus_write_msr(MSR_IA32_CR_PAT, pat); remus_write_msr(MSR_EFER, efer); remus_write_msr(MSR_IA32_DEBUGCTLMSR, debugctl);
   asm volatile("mov %0,%%dr7" : : "r"(dr7));
   cpu->status.active = 0;
   cpu->vmxon_active = false;

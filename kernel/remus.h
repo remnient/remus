@@ -15,6 +15,28 @@
 #define REMUS_EPT_LIMIT (1ULL << 39)
 #define remus_read_msr(index, value) ((value) = native_read_msr(index))
 
+static inline int remus_read_safe(u32 index, u64 *value) {
+#ifdef native_wrmsrq
+  return native_read_msr_safe(index, value);
+#else
+  int error;
+  *value = native_read_msr_safe(index, &error);
+  return error;
+#endif
+}
+
+static inline int remus_write_safe(u32 index, u64 value) {
+#ifdef native_wrmsrq
+  return native_write_msr_safe(index, value);
+#else
+  return native_write_msr_safe(index, (u32)value, (u32)(value >> 32));
+#endif
+}
+
+static inline void remus_write_msr(u32 index, u64 value) {
+  native_wrmsr(index, (u32)value, (u32)(value >> 32));
+}
+
 bool remus_fail_allocation(void);
 
 static inline void *remus_zalloc(size_t size) {
